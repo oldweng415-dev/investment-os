@@ -1,0 +1,21 @@
+{
+    "date": "2026-07-18",
+    "scores": {
+        "Buy_Score": 75.05,
+        "Risk_Score": 27.91,
+        "Margin_Score": 67.94
+    },
+    "allocation": {
+        "Target_Margin_Pct": 5,
+        "Target_Cash_Pct": 15
+    },
+    "action": "持有核心部位，維持中性狀態",
+    "modules": {
+        "Market_Regime": 85.06,
+        "Macro": 62.52,
+        "Liquidity": 59.64,
+        "Positioning": 75.16,
+        "Valuation": 100,
+        "AI_Cycle": 48.75
+    }
+}
