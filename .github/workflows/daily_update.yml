@@ -11,6 +11,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 關鍵：抓取完整歷史紀錄以允許 pull/rebase
       
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -29,8 +31,8 @@ jobs:
         run: |
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'actions@github.com'
+          git pull --rebase origin main
           git add output/latest_signals.json || true
           git add data/ || true
           git commit -m "Update OS signals: $(date)" || true
-          git pull --rebase origin main
-          git push
+          git push origin main
