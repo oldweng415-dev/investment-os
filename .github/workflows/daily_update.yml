@@ -1,41 +1,144 @@
 name: Daily OS Update
+
 on:
   schedule:
-    - cron: '30 22 * * *' # 每天早上 06:30 (台灣時間) 執行
-  workflow_dispatch:      # 允許手動點擊執行
+    # GitHub Actions 使用 UTC
+    # 22:30 UTC = 台灣時間隔日 06:30
+    - cron: '30 22 * * *'
+
+  # 允許手動執行
+  workflow_dispatch:
+
+# 避免排程與手動執行同時修改 main
+concurrency:
+  group: daily-os-update-main
+  cancel-in-progress: false
 
 jobs:
   update:
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
+
     steps:
-      - uses: actions/checkout@v4
+      # ========================================
+      # 1. Checkout
+      # ========================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
-      
+          persist-credentials: true
+
+      # ========================================
+      # 2. Python
+      # ========================================
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          
+          cache: pip
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install yfinance pandas numpy pandas-datareader requests scipy
-          
-      - name: Pull latest changes
+          pip install \
+            yfinance \
+            pandas \
+            numpy \
+            pandas-datareader \
+            requests \
+            scipy
+
+      # ========================================
+      # 3. 在執行 Python 前同步遠端 main
+      # ========================================
+      - name: Sync latest main
+        shell: bash
         run: |
-          git config --global user.name 'GitHub Actions'
-          git config --global user.email 'actions@github.com'
-          git pull origin main --rebase || true
-          
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main
+          git reset --hard origin/main
+
+      # ========================================
+      # 4. 執行 Investment OS
+      # ========================================
       - name: Run OS Engine
-        run: python investment_os_production.py
-        
-      - name: Commit and Push
+        shell: bash
         run: |
-          git add output/latest_signals.json || true
-          git add data/ || true
-          git commit -m "Update OS signals: $(date)" || true
-          git push origin main
+          set -euo pipefail
+          python investment_os_production.py
+
+      # ========================================
+      # 5. 驗證輸出
+      # ========================================
+      - name: Validate output
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "output/latest_signals.json" ]; then
+            echo "ERROR: output/latest_signals.json was not generated."
+            exit 1
+          fi
+
+          python -m json.tool \
+            output/latest_signals.json \
+            > /dev/null
+
+          echo "latest_signals.json validation passed."
+
+      # ========================================
+      # 6. Commit 與 Push
+      # ========================================
+      - name: Commit and Push
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # 只加入真正需要發布的輸出
+          git add output/latest_signals.json
+
+          # 程式未來若產生其他 output CSV，也一併加入
+          if compgen -G "output/*.csv" > /dev/null; then
+            git add output/*.csv
+          fi
+
+          # 沒有變更時正常結束，不製造空 commit
+          if git diff --cached --quiet; then
+            echo "No signal changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Update OS signals: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+          # 第一次直接推送；若遠端剛好又更新，則 rebase 後重試
+          for attempt in 1 2 3; do
+            echo "Push attempt ${attempt}/3"
+
+            if git push origin HEAD:main; then
+              echo "Push completed successfully."
+              exit 0
+            fi
+
+            echo "Remote main changed. Fetching and rebasing..."
+
+            git fetch origin main
+
+            if ! git rebase origin/main; then
+              echo "ERROR: Rebase conflict occurred."
+              git rebase --abort || true
+              exit 1
+            fi
+
+            sleep $((attempt * 3))
+          done
+
+          echo "ERROR: Push failed after 3 attempts."
+          exit 1
