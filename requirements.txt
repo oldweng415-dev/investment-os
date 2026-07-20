@@ -1,0 +1,7 @@
+yfinance>=0.2.54
+pandas>=2.1
+numpy>=1.26
+requests>=2.31
+urllib3>=2.2
+pandas-datareader>=0.10
+scipy>=1.11
