@@ -161,12 +161,39 @@ def configure_logging(cfg: Config) -> logging.Logger:
 
 
 def requests_session() -> requests.Session:
-    retry = Retry(total=4, connect=4, read=4, backoff_factor=1.0,
-                  status_forcelist=(429, 500, 502, 503, 504),
-                  allowed_methods=frozenset(["GET"]))
+    """
+    建立具有重試機制的 HTTP Session。
+
+    不設定過多重試，避免 FRED 故障時，
+    每一個資料序列都等待數分鐘。
+    """
+    retry = Retry(
+        total=2,
+        connect=2,
+        read=2,
+        status=2,
+        backoff_factor=2.0,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET"]),
+        respect_retry_after_header=True,
+    )
+
     session = requests.Session()
-    session.mount("https://", HTTPAdapter(max_retries=retry))
-    session.headers.update({"User-Agent": "Investment-OS/1.0"})
+
+    adapter = HTTPAdapter(
+        max_retries=retry,
+        pool_connections=10,
+        pool_maxsize=10,
+    )
+
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    session.headers.update({
+        "User-Agent": "Investment-OS/1.0",
+        "Accept": "application/json,text/csv,*/*",
+    })
+
     return session
 
 
@@ -359,23 +386,128 @@ def validate_market_data(data: Dict[str, pd.DataFrame], cfg: Config,
     return close.reindex(calendar), missing
 
 
-def fred_download(series_id: str, cfg: Config, session: requests.Session) -> pd.Series:
+def fred_download(
+    series_id: str,
+    cfg: Config,
+    session: requests.Session,
+) -> pd.Series:
+    """
+    下載單一 FRED 序列。
+
+    優先順序：
+    1. 有 FRED_API_KEY：使用官方 JSON API。
+    2. 沒有 API Key：使用公開 FRED CSV。
+    3. 兩者失敗後，由 load_live_fred() 接手讀取本機快取。
+    """
+
     if cfg.fred_api_key:
-        url = "https://api.stlouisfed.org/fred/series/observations"
-        params = {"series_id": series_id, "api_key": cfg.fred_api_key,
-                  "file_type": "json", "observation_start": cfg.start_date}
-        r = session.get(url, params=params, timeout=30)
-        r.raise_for_status()
-        items = r.json().get("observations", [])
-        return pd.Series({pd.Timestamp(x["date"]): pd.to_numeric(x["value"], errors="coerce") for x in items}, name=series_id).dropna().sort_index()
+        url = (
+            "https://api.stlouisfed.org/"
+            "fred/series/observations"
+        )
+
+        params = {
+            "series_id": series_id,
+            "api_key": cfg.fred_api_key,
+            "file_type": "json",
+            "observation_start": cfg.start_date,
+        }
+
+        response = session.get(
+            url,
+            params=params,
+            timeout=(10, 60),
+        )
+
+        response.raise_for_status()
+
+        items = response.json().get("observations", [])
+
+        records = {}
+
+        for item in items:
+            date_value = item.get("date")
+            raw_value = item.get("value")
+
+            if date_value is None:
+                continue
+
+            numeric_value = pd.to_numeric(
+                raw_value,
+                errors="coerce",
+            )
+
+            if pd.isna(numeric_value):
+                continue
+
+            records[pd.Timestamp(date_value)] = numeric_value
+
+        result = pd.Series(
+            records,
+            name=series_id,
+            dtype=float,
+        ).sort_index()
+
+        if result.empty:
+            raise RuntimeError(
+                f"FRED API returned empty data for {series_id}"
+            )
+
+        return result
+
+    # 沒有 API Key 時的公開 CSV fallback
     url = "https://fred.stlouisfed.org/graph/fredgraph.csv"
-    r = session.get(url, params={"id": series_id, "cosd": cfg.start_date}, timeout=30)
-    r.raise_for_status()
-    frame = pd.read_csv(StringIO(r.text))
-    date_col, value_col = frame.columns[0], (series_id if series_id in frame.columns else frame.columns[-1])
-    frame[date_col] = pd.to_datetime(frame[date_col], errors="coerce")
-    frame[value_col] = pd.to_numeric(frame[value_col], errors="coerce")
-    return frame.dropna(subset=[date_col]).set_index(date_col)[value_col].dropna().sort_index()
+
+    response = session.get(
+        url,
+        params={
+            "id": series_id,
+            "cosd": cfg.start_date,
+        },
+        timeout=(10, 90),
+    )
+
+    response.raise_for_status()
+
+    frame = pd.read_csv(StringIO(response.text))
+
+    if frame.empty or len(frame.columns) < 2:
+        raise RuntimeError(
+            f"FRED CSV returned invalid data for {series_id}"
+        )
+
+    date_column = frame.columns[0]
+
+    value_column = (
+        series_id
+        if series_id in frame.columns
+        else frame.columns[-1]
+    )
+
+    frame[date_column] = pd.to_datetime(
+        frame[date_column],
+        errors="coerce",
+    )
+
+    frame[value_column] = pd.to_numeric(
+        frame[value_column],
+        errors="coerce",
+    )
+
+    result = (
+        frame
+        .dropna(subset=[date_column, value_column])
+        .set_index(date_column)[value_column]
+        .sort_index()
+    )
+
+    if result.empty:
+        raise RuntimeError(
+            f"FRED CSV returned empty data for {series_id}"
+        )
+
+    result.name = series_id
+    return result
 
 
 def load_live_fred(cfg: Config, logger: logging.Logger) -> Dict[str, pd.Series]:
