@@ -2,16 +2,14 @@ name: Daily OS Update
 
 on:
   schedule:
-    # GitHub Actions 使用 UTC
     # 22:30 UTC = 台灣時間隔日 06:30
     - cron: '30 22 * * *'
 
-  # 允許手動執行
   workflow_dispatch:
 
-# 避免排程與手動執行同時修改 main
+# 防止排程、手動執行或重複 workflow 同時寫入 main
 concurrency:
-  group: daily-os-update-main
+  group: investment-os-main-writer
   cancel-in-progress: false
 
 jobs:
@@ -23,27 +21,34 @@ jobs:
 
     steps:
       # ========================================
-      # 1. Checkout
+      # 1. Checkout 最新 main
       # ========================================
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
           persist-credentials: true
 
       # ========================================
-      # 2. Python
+      # 2. Python 環境
       # ========================================
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
           cache: pip
 
+      # ========================================
+      # 3. 安裝套件
+      # ========================================
       - name: Install dependencies
+        shell: bash
         run: |
+          set -euo pipefail
+
           python -m pip install --upgrade pip
+
           pip install \
             yfinance \
             pandas \
@@ -53,7 +58,7 @@ jobs:
             scipy
 
       # ========================================
-      # 3. 在執行 Python 前同步遠端 main
+      # 4. 執行前再次同步 main
       # ========================================
       - name: Sync latest main
         shell: bash
@@ -67,16 +72,17 @@ jobs:
           git reset --hard origin/main
 
       # ========================================
-      # 4. 執行 Investment OS
+      # 5. 執行 OS
       # ========================================
       - name: Run OS Engine
         shell: bash
         run: |
           set -euo pipefail
+
           python investment_os_production.py
 
       # ========================================
-      # 5. 驗證輸出
+      # 6. 驗證輸出檔
       # ========================================
       - name: Validate output
         shell: bash
@@ -85,6 +91,8 @@ jobs:
 
           if [ ! -f "output/latest_signals.json" ]; then
             echo "ERROR: output/latest_signals.json was not generated."
+            echo "Current files:"
+            find . -maxdepth 3 -type f | sort
             exit 1
           fi
 
@@ -92,50 +100,61 @@ jobs:
             output/latest_signals.json \
             > /dev/null
 
-          echo "latest_signals.json validation passed."
+          echo "Output validation passed."
+
+          echo "Generated signal:"
+          cat output/latest_signals.json
 
       # ========================================
-      # 6. Commit 與 Push
+      # 7. 安全 Commit 與 Push
       # ========================================
       - name: Commit and Push
         shell: bash
         run: |
           set -euo pipefail
 
-          # 只加入真正需要發布的輸出
-          git add output/latest_signals.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # 程式未來若產生其他 output CSV，也一併加入
-          if compgen -G "output/*.csv" > /dev/null; then
-            git add output/*.csv
-          fi
+          # 暫存本次 Python 產生的完整 output
+          rm -rf /tmp/investment-os-output
+          mkdir -p /tmp/investment-os-output
 
-          # 沒有變更時正常結束，不製造空 commit
-          if git diff --cached --quiet; then
-            echo "No signal changes to commit."
-            exit 0
-          fi
+          cp -a output/. /tmp/investment-os-output/
 
-          git commit -m "Update OS signals: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-
-          # 第一次直接推送；若遠端剛好又更新，則 rebase 後重試
+          # 最多嘗試三次
           for attempt in 1 2 3; do
-            echo "Push attempt ${attempt}/3"
+            echo "======================================"
+            echo "Commit/push attempt ${attempt}/3"
+            echo "======================================"
+
+            # 取得此刻真正的遠端 main
+            git fetch origin main
+            git reset --hard origin/main
+
+            # 把這次產生的結果重新放回
+            mkdir -p output
+            cp -a /tmp/investment-os-output/. output/
+
+            # 只提交 output，不提交快取或外部原始資料
+            git add output/
+
+            # 沒有內容改變時正常完成
+            if git diff --cached --quiet; then
+              echo "No output changes detected."
+              exit 0
+            fi
+
+            git commit \
+              -m "Update OS signals: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 
             if git push origin HEAD:main; then
               echo "Push completed successfully."
               exit 0
             fi
 
-            echo "Remote main changed. Fetching and rebasing..."
-
-            git fetch origin main
-
-            if ! git rebase origin/main; then
-              echo "ERROR: Rebase conflict occurred."
-              git rebase --abort || true
-              exit 1
-            fi
+            echo "Remote main changed before push."
+            echo "Retrying with the newest remote main..."
 
             sleep $((attempt * 3))
           done
