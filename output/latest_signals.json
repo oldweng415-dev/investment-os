@@ -1,0 +1,40 @@
+{
+    "signal_date": "2026-07-17",
+    "generated_at": "2026-07-20T06:24:15.817555",
+    "data_mode": "live_public",
+    "scores": {
+        "Buy_Score": 46.9,
+        "Risk_Score": 53.42,
+        "Margin_Score": 46.98
+    },
+    "modules": {
+        "market_regime": 40.0,
+        "ai_cycle": null,
+        "valuation": null,
+        "macro": 50.0,
+        "liquidity": 49.28,
+        "positioning": 52.78
+    },
+    "allocation": {
+        "Target_Margin_Pct": 5,
+        "Target_Cash_Min_Pct": 20,
+        "Target_Cash_Max_Pct": 25
+    },
+    "covered_call": {
+        "status": "HOLD_EXISTING_CC",
+        "reason": []
+    },
+    "action": "買核心ETF，小量分批",
+    "data_quality": {
+        "coverage_ratio": 0.65,
+        "critical_data_ok": true,
+        "proxy_modules": [
+            "market_regime_breadth"
+        ],
+        "unavailable_modules": [
+            "ai_cycle",
+            "valuation"
+        ]
+    },
+    "risk_overrides": []
+}
