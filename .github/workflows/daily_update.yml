@@ -372,7 +372,11 @@ jobs:
             mkdir -p output
             cp -a /tmp/investment-os-output/. output/
 
-            git add output/
+            # 相容目前前端使用的 raw.githubusercontent.com 路徑
+            # 在 main 根目錄同步一份最新 JSON
+            cp output/latest_signals.json latest_signals.json
+
+            git add output/ latest_signals.json
 
             if git diff --cached --quiet; then
               echo "No output changes detected."
@@ -399,6 +403,9 @@ jobs:
           # 確保後續 Pages 步驟仍使用本次 output
           mkdir -p output
           cp -a /tmp/investment-os-output/. output/
+
+          # 同步根目錄 JSON
+          cp output/latest_signals.json latest_signals.json
 
       # ======================================================
       # 9. 準備 GitHub Pages 網站檔案
