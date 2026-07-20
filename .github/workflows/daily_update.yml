@@ -30,6 +30,7 @@ jobs:
     env:
       # 每日公開資料模式
       INVESTMENT_OS_DATA_MODE: live_public
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
 
       # 沒設定 Secret 時會是空值，
       # Python 會自動改用 FRED 公開 CSV
@@ -83,6 +84,14 @@ jobs:
 
           echo "Installed packages:"
           python -m pip freeze
+
+      - name: Restore FRED data cache
+        uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: fred-data-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            fred-data-${{ runner.os }}-
 
       # ======================================================
       # 5. 確認主程式存在
