@@ -2,12 +2,9 @@ name: Daily OS Update
 
 on:
   schedule:
-    # 22:30 UTC = 台灣時間隔日 06:30
     - cron: '30 22 * * *'
-
   workflow_dispatch:
 
-# 防止排程、手動執行或重複 workflow 同時寫入 main
 concurrency:
   group: investment-os-main-writer
   cancel-in-progress: false
@@ -20,9 +17,6 @@ jobs:
       contents: write
 
     steps:
-      # ========================================
-      # 1. Checkout 最新 main
-      # ========================================
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
@@ -30,25 +24,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      # ========================================
-      # 2. Python 環境
-      # ========================================
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.10'
-          cache: pip
 
-      # ========================================
-      # 3. 安裝套件
-      # ========================================
       - name: Install dependencies
         shell: bash
         run: |
           set -euo pipefail
-
           python -m pip install --upgrade pip
-
           pip install \
             yfinance \
             pandas \
@@ -57,9 +42,6 @@ jobs:
             requests \
             scipy
 
-      # ========================================
-      # 4. 執行前再次同步 main
-      # ========================================
       - name: Sync latest main
         shell: bash
         run: |
@@ -71,19 +53,12 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
 
-      # ========================================
-      # 5. 執行 OS
-      # ========================================
       - name: Run OS Engine
         shell: bash
         run: |
           set -euo pipefail
-
           python investment_os_production.py
 
-      # ========================================
-      # 6. 驗證輸出檔
-      # ========================================
       - name: Validate output
         shell: bash
         run: |
@@ -91,23 +66,13 @@ jobs:
 
           if [ ! -f "output/latest_signals.json" ]; then
             echo "ERROR: output/latest_signals.json was not generated."
-            echo "Current files:"
             find . -maxdepth 3 -type f | sort
             exit 1
           fi
 
-          python -m json.tool \
-            output/latest_signals.json \
-            > /dev/null
-
+          python -m json.tool output/latest_signals.json > /dev/null
           echo "Output validation passed."
 
-          echo "Generated signal:"
-          cat output/latest_signals.json
-
-      # ========================================
-      # 7. 安全 Commit 與 Push
-      # ========================================
       - name: Commit and Push
         shell: bash
         run: |
@@ -116,30 +81,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # 暫存本次 Python 產生的完整 output
           rm -rf /tmp/investment-os-output
           mkdir -p /tmp/investment-os-output
-
           cp -a output/. /tmp/investment-os-output/
 
-          # 最多嘗試三次
           for attempt in 1 2 3; do
-            echo "======================================"
             echo "Commit/push attempt ${attempt}/3"
-            echo "======================================"
 
-            # 取得此刻真正的遠端 main
             git fetch origin main
             git reset --hard origin/main
 
-            # 把這次產生的結果重新放回
             mkdir -p output
             cp -a /tmp/investment-os-output/. output/
 
-            # 只提交 output，不提交快取或外部原始資料
             git add output/
 
-            # 沒有內容改變時正常完成
             if git diff --cached --quiet; then
               echo "No output changes detected."
               exit 0
@@ -152,9 +108,6 @@ jobs:
               echo "Push completed successfully."
               exit 0
             fi
-
-            echo "Remote main changed before push."
-            echo "Retrying with the newest remote main..."
 
             sleep $((attempt * 3))
           done
