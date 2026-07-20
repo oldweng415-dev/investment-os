@@ -29,8 +29,8 @@ jobs:
         run: |
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'actions@github.com'
-          # 注意：將新增的 output 與 data 資料夾都加入追蹤
           git add output/latest_signals.json || true
           git add data/ || true
           git commit -m "Update OS signals: $(date)" || true
+          git pull --rebase origin main
           git push
