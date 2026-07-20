@@ -4,20 +4,41 @@ on:
   schedule:
     # UTC 22:30 = 台灣時間隔日 06:30
     - cron: '30 22 * * *'
+
   workflow_dispatch:
 
+# 避免排程與手動執行同時修改 main 或部署 Pages
 concurrency:
-  group: investment-os-main-writer
+  group: investment-os-main-and-pages
   cancel-in-progress: false
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
+    # main 寫入與 GitHub Pages 部署所需權限
     permissions:
       contents: write
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    env:
+      # 每日公開資料模式
+      INVESTMENT_OS_DATA_MODE: live_public
+
+      # 沒設定 Secret 時會是空值，
+      # Python 會自動改用 FRED 公開 CSV
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
 
     steps:
+      # ======================================================
+      # 1. Checkout main
+      # ======================================================
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
@@ -25,25 +46,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python -m pip install --upgrade pip
-          pip install \
-            yfinance \
-            pandas \
-            numpy \
-            pandas-datareader \
-            requests \
-            scipy
-
+      # ======================================================
+      # 2. 執行前先同步最新 main
+      # ======================================================
       - name: Sync latest main
         shell: bash
         run: |
@@ -55,30 +60,272 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
 
+      # ======================================================
+      # 3. Python
+      # ======================================================
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # ======================================================
+      # 4. 安裝 requirements.txt
+      # ======================================================
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+          echo "Installed packages:"
+          python -m pip freeze
+
+      # ======================================================
+      # 5. 確認主程式存在
+      # ======================================================
+      - name: Validate source files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "investment_os_production.py" ]; then
+            echo "ERROR: investment_os_production.py does not exist."
+            exit 1
+          fi
+
+          if [ ! -f "requirements.txt" ]; then
+            echo "ERROR: requirements.txt does not exist."
+            exit 1
+          fi
+
+          # Python 語法檢查
+          python -m py_compile investment_os_production.py
+
+          echo "Source validation passed."
+
+      # ======================================================
+      # 6. 執行 Investment OS
+      # ======================================================
       - name: Run OS Engine
         shell: bash
         run: |
           set -euo pipefail
+
           python investment_os_production.py
 
+      # ======================================================
+      # 7. 驗證五個必要輸出
+      # ======================================================
       - name: Validate output
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ ! -f "output/latest_signals.json" ]; then
-            echo "ERROR: output/latest_signals.json was not generated."
-            find . -maxdepth 3 -type f | sort
-            exit 1
-          fi
+          REQUIRED_FILES=(
+            "output/latest_signals.json"
+            "output/score_history.csv"
+            "output/module_data_quality.csv"
+            "output/raw_indicator_snapshot.csv"
+            "output/warnings.log"
+          )
 
-          python -m json.tool output/latest_signals.json > /dev/null
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "ERROR: Required output was not generated: $file"
+              echo "Current repository files:"
+              find . -maxdepth 3 -type f | sort
+              exit 1
+            fi
 
-          echo "Output validation passed."
-          echo "Generated JSON:"
+            if [ ! -s "$file" ]; then
+              echo "ERROR: Required output is empty: $file"
+              exit 1
+            fi
+          done
+
+          # JSON 格式驗證
+          python -m json.tool \
+            output/latest_signals.json \
+            > /dev/null
+
+          # JSON 與 CSV 基本欄位驗證
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          import pandas as pd
+
+          output_dir = Path("output")
+
+          with open(
+              output_dir / "latest_signals.json",
+              "r",
+              encoding="utf-8",
+          ) as handle:
+              payload = json.load(handle)
+
+          required_json_keys = {
+              "signal_date",
+              "generated_at",
+              "data_mode",
+              "scores",
+              "modules",
+              "allocation",
+              "covered_call",
+              "effective_module_weights",
+              "data_quality",
+              "risk_overrides",
+              "decision_reasons",
+              "raw_indicators",
+          }
+
+          missing_json_keys = required_json_keys - set(payload)
+
+          if missing_json_keys:
+              raise AssertionError(
+                  f"latest_signals.json missing keys: "
+                  f"{sorted(missing_json_keys)}"
+              )
+
+          required_scores = {
+              "Buy_Score",
+              "Risk_Score",
+              "Margin_Score",
+          }
+
+          missing_scores = (
+              required_scores
+              - set(payload.get("scores", {}))
+          )
+
+          if missing_scores:
+              raise AssertionError(
+                  f"scores missing keys: {sorted(missing_scores)}"
+              )
+
+          required_modules = {
+              "Market_Regime",
+              "AI_Cycle",
+              "Valuation",
+              "Macro",
+              "Liquidity",
+              "Positioning",
+          }
+
+          missing_modules = (
+              required_modules
+              - set(payload.get("modules", {}))
+          )
+
+          if missing_modules:
+              raise AssertionError(
+                  f"modules missing keys: {sorted(missing_modules)}"
+              )
+
+          history = pd.read_csv(
+              output_dir / "score_history.csv"
+          )
+
+          required_history_columns = {
+              "date",
+              "Market_Regime",
+              "AI_Cycle",
+              "Valuation",
+              "Macro",
+              "Liquidity",
+              "Positioning",
+              "Buy_Score",
+              "Risk_Score",
+              "Margin_Score",
+              "Target_Margin_Pct",
+              "Coverage_Ratio",
+          }
+
+          missing_history = (
+              required_history_columns
+              - set(history.columns)
+          )
+
+          if missing_history:
+              raise AssertionError(
+                  f"score_history.csv missing columns: "
+                  f"{sorted(missing_history)}"
+              )
+
+          quality = pd.read_csv(
+              output_dir / "module_data_quality.csv"
+          )
+
+          required_quality_columns = {
+              "signal_date",
+              "module",
+              "score",
+              "available",
+              "coverage",
+              "is_proxy",
+              "missing_inputs",
+              "stale_inputs",
+          }
+
+          missing_quality = (
+              required_quality_columns
+              - set(quality.columns)
+          )
+
+          if missing_quality:
+              raise AssertionError(
+                  f"module_data_quality.csv missing columns: "
+                  f"{sorted(missing_quality)}"
+              )
+
+          target_margin = payload["allocation"]["Target_Margin_Pct"]
+          risk_score = payload["scores"]["Risk_Score"]
+          liquidity_score = payload["modules"]["Liquidity"]
+          margin_score = payload["scores"]["Margin_Score"]
+          coverage = payload["data_quality"]["coverage_ratio"]
+
+          assert 0 <= target_margin <= 20
+
+          if risk_score is not None and risk_score > 70:
+              assert target_margin == 0
+
+          if liquidity_score is not None and liquidity_score < 30:
+              assert target_margin == 0
+
+          if margin_score is not None and margin_score < 45:
+              assert target_margin == 0
+
+          if coverage is not None and coverage < 0.60:
+              assert target_margin == 0
+
+          print("JSON and CSV validation passed.")
+          print(
+              "Signal date:",
+              payload["signal_date"],
+          )
+          print(
+              "Scores:",
+              payload["scores"],
+          )
+          print(
+              "Allocation:",
+              payload["allocation"],
+          )
+          PY
+
+          echo "All output validation passed."
+
+          echo "Generated latest_signals.json:"
           cat output/latest_signals.json
 
-      - name: Commit and Push
+      # ======================================================
+      # 8. 把 output 寫回 main
+      # ======================================================
+      - name: Commit and Push output to main
         shell: bash
         run: |
           set -euo pipefail
@@ -86,16 +333,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # 保存本次程式產生的 output
           rm -rf /tmp/investment-os-output
           mkdir -p /tmp/investment-os-output
+
           cp -a output/. /tmp/investment-os-output/
 
           for attempt in 1 2 3; do
+            echo "======================================"
             echo "Commit/push attempt ${attempt}/3"
+            echo "======================================"
 
+            # 每次 push 前取得最新 main
             git fetch origin main
             git reset --hard origin/main
 
+            # 放回本次產出的 output
             mkdir -p output
             cp -a /tmp/investment-os-output/. output/
 
@@ -103,7 +356,7 @@ jobs:
 
             if git diff --cached --quiet; then
               echo "No output changes detected."
-              exit 0
+              break
             fi
 
             git commit \
@@ -111,58 +364,87 @@ jobs:
 
             if git push origin HEAD:main; then
               echo "Push to main completed successfully."
-              exit 0
+              break
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "ERROR: Push to main failed after 3 attempts."
+              exit 1
             fi
 
             echo "Remote main changed. Retrying..."
             sleep $((attempt * 3))
           done
 
-          echo "ERROR: Push to main failed after 3 attempts."
-          exit 1
+          # 確保後續 Pages 步驟仍使用本次 output
+          mkdir -p output
+          cp -a /tmp/investment-os-output/. output/
 
-      - name: Update GitHub Pages data
+      # ======================================================
+      # 9. 準備 GitHub Pages 網站檔案
+      # ======================================================
+      - name: Prepare GitHub Pages site
         shell: bash
         run: |
           set -euo pipefail
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -rf /tmp/pages-site
+          mkdir -p /tmp/pages-site
 
-          rm -rf /tmp/gh-pages
-
+          # 讀取現有 gh-pages 網站，
+          # 保留 index.html、CSS、JavaScript 等前端檔案
           git fetch origin gh-pages
 
-          # 直接建立 gh-pages worktree
-          git worktree add \
-            -B gh-pages \
-            /tmp/gh-pages \
-            origin/gh-pages
+          git archive origin/gh-pages \
+            | tar -x -C /tmp/pages-site
 
-          cd /tmp/gh-pages
+          mkdir -p /tmp/pages-site/output
 
-          mkdir -p output
-
-          # 同步到 output 路徑
-          cp "${GITHUB_WORKSPACE}/output/latest_signals.json" \
-             output/latest_signals.json
-
-          # 同時同步到網站根目錄，避免 index.html 讀取舊路徑
-          cp "${GITHUB_WORKSPACE}/output/latest_signals.json" \
-             latest_signals.json
-
-          git add \
+          # 首頁常用的根目錄 JSON
+          cp \
             output/latest_signals.json \
-            latest_signals.json
+            /tmp/pages-site/latest_signals.json
 
-          if git diff --cached --quiet; then
-            echo "GitHub Pages data is already current."
-            exit 0
-          fi
+          # 完整資料放在 output/
+          cp \
+            output/latest_signals.json \
+            /tmp/pages-site/output/latest_signals.json
 
-          git commit \
-            -m "Update Pages signals: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          cp \
+            output/score_history.csv \
+            /tmp/pages-site/output/score_history.csv
 
-          git push origin HEAD:gh-pages
+          cp \
+            output/module_data_quality.csv \
+            /tmp/pages-site/output/module_data_quality.csv
 
-          echo "GitHub Pages data updated successfully."
+          cp \
+            output/raw_indicator_snapshot.csv \
+            /tmp/pages-site/output/raw_indicator_snapshot.csv
+
+          # 不將 warnings.log 公開部署到網站
+          touch /tmp/pages-site/.nojekyll
+
+          echo "Pages site files:"
+          find /tmp/pages-site -maxdepth 3 -type f | sort
+
+      # ======================================================
+      # 10. 設定 GitHub Pages
+      # ======================================================
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      # ======================================================
+      # 11. 上傳 Pages Artifact
+      # ======================================================
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: /tmp/pages-site
+
+      # ======================================================
+      # 12. 正式部署 Pages
+      # ======================================================
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
