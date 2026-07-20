@@ -91,7 +91,19 @@ jobs:
           key: fred-data-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             fred-data-${{ runner.os }}-
+           
+       - name: Verify FRED API configuration
+         shell: bash
+         run: |
+          set -euo pipefail
 
+          if [ -z "${FRED_API_KEY:-}" ]; then
+            echo "::error::FRED_API_KEY is empty or unavailable."
+            exit 1
+          fi
+
+          echo "FRED_API_KEY is configured."
+      
       # ======================================================
       # 5. 確認主程式存在
       # ======================================================
