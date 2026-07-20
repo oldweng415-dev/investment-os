@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 關鍵：抓取完整歷史紀錄以允許 pull/rebase
+          fetch-depth: 0
       
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,14 +24,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install yfinance pandas numpy pandas-datareader requests scipy
           
+      - name: Pull latest changes
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git pull origin main --rebase || true
+          
       - name: Run OS Engine
         run: python investment_os_production.py
         
       - name: Commit and Push
         run: |
-          git config --global user.name 'GitHub Actions'
-          git config --global user.email 'actions@github.com'
-          git pull --rebase origin main
           git add output/latest_signals.json || true
           git add data/ || true
           git commit -m "Update OS signals: $(date)" || true
