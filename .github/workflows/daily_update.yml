@@ -15,7 +15,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # 升級到較新的 Python 版本
+          python-version: '3.10'
           
       - name: Install dependencies
         run: |
@@ -23,7 +23,7 @@ jobs:
           pip install yfinance pandas numpy pandas-datareader requests scipy
           
       - name: Run OS Engine
-        run: python investment_os_live.py
+        run: python investment_os_production.py
         
       - name: Commit and Push
         run: |
