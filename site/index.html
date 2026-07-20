@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>質押槓桿擇時引擎 OS</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #182033;
+      --muted: #667085;
+      --line: #e5e7eb;
+      --buy: #16a36a;
+      --risk: #e04f45;
+      --margin: #3182ce;
+      --navy: #334e68;
+      --warning: #b76e00;
+      --danger-bg: #fff1f0;
+      --danger: #c9362b;
+      --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    }
+
+    .container {
+      width: min(1080px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 36px 0 56px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo {
+      display: grid;
+      place-items: center;
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #d9f99d, #bfdbfe);
+      font-size: 30px;
+      box-shadow: var(--shadow);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 46px);
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+
+    .subtitle {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .updated {
+      min-width: 220px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--card);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+      text-align: right;
+    }
+
+    .updated strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .status {
+      margin-bottom: 20px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: #eef4ff;
+      color: #264a7c;
+      font-weight: 700;
+    }
+
+    .status.error {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+
+    .hidden { display: none !important; }
+
+    .score-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+
+    .score-card,
+    .panel {
+      border: 1px solid rgba(229, 231, 235, 0.9);
+      border-radius: var(--radius);
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+
+    .score-card {
+      padding: 24px;
+      text-align: center;
+    }
+
+    .score-label {
+      color: var(--muted);
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .score-value {
+      margin-top: 14px;
+      font-size: clamp(42px, 6vw, 60px);
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .buy { color: var(--buy); }
+    .risk { color: var(--risk); }
+    .margin { color: var(--margin); }
+
+    .decision {
+      margin-bottom: 20px;
+      padding: 24px;
+      border-radius: var(--radius);
+      background: var(--navy);
+      color: white;
+      box-shadow: var(--shadow);
+    }
+
+    .decision h2,
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 20px;
+    }
+
+    .decision-action {
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1.55;
+    }
+
+    .decision-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 6px 11px;
+      border-radius: 999px;
+      background: #eef2f7;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .decision .pill {
+      background: rgba(255, 255, 255, 0.14);
+      color: white;
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .panel {
+      padding: 22px;
+      margin-bottom: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 14px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      background: #f8fafc;
+      color: #475467;
+      font-size: 13px;
+      letter-spacing: 0.02em;
+    }
+
+    td:last-child,
+    th:last-child { text-align: right; }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .module-name { font-weight: 750; }
+
+    .module-note {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .missing {
+      color: var(--warning);
+      font-weight: 800;
+    }
+
+    .metric-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .metric-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .metric-row:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .metric-label { color: var(--muted); }
+    .metric-value { font-weight: 800; text-align: right; }
+
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .tag-list .pill.warning {
+      background: #fff7e6;
+      color: #9a5b00;
+    }
+
+    .tag-list .pill.danger {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+
+    .empty-note {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    footer a { color: #315f9b; }
+
+    @media (max-width: 800px) {
+      header { flex-direction: column; }
+      .updated { width: 100%; text-align: left; }
+      .score-grid { grid-template-columns: 1fr; }
+      .content-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header>
+      <div class="brand">
+        <div class="logo" aria-hidden="true">📊</div>
+        <div>
+          <h1>質押槓桿擇時引擎 OS</h1>
+          <p class="subtitle">Investment OS · 每日公開資料訊號</p>
+        </div>
+      </div>
+
+      <div class="updated">
+        <div>訊號日期：<strong id="signal-date">載入中</strong></div>
+        <div>產生時間：<strong id="generated-at">載入中</strong></div>
+        <div>資料模式：<strong id="data-mode">載入中</strong></div>
+      </div>
+    </header>
+
+    <div id="status" class="status">正在載入最新訊號…</div>
+
+    <section id="dashboard" class="hidden" aria-live="polite">
+      <div class="score-grid">
+        <article class="score-card">
+          <div class="score-label">買進分數（Buy）</div>
+          <div id="buy-score" class="score-value buy">—</div>
+        </article>
+        <article class="score-card">
+          <div class="score-label">風險分數（Risk）</div>
+          <div id="risk-score" class="score-value risk">—</div>
+        </article>
+        <article class="score-card">
+          <div class="score-label">融資分數（Margin Score）</div>
+          <div id="margin-score" class="score-value margin">—</div>
+        </article>
+      </div>
+
+      <section class="decision">
+        <h2>💡 今日決策建議</h2>
+        <div id="action" class="decision-action">—</div>
+        <div class="decision-meta">
+          <span id="target-margin" class="pill">目標融資：—</span>
+          <span id="cash-range" class="pill">預留現金：—</span>
+          <span id="covered-call" class="pill">Covered Call：—</span>
+        </div>
+      </section>
+
+      <div class="content-grid">
+        <div>
+          <section class="panel">
+            <h2>🧩 底層模組狀態</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>模組</th>
+                  <th>分數</th>
+                </tr>
+              </thead>
+              <tbody id="module-table"></tbody>
+            </table>
+          </section>
+
+          <section class="panel">
+            <h2>🧭 決策原因</h2>
+            <div id="decision-reasons" class="tag-list"></div>
+          </section>
+        </div>
+
+        <aside>
+          <section class="panel">
+            <h2>🛡️ 資料品質</h2>
+            <div class="metric-list">
+              <div class="metric-row">
+                <span class="metric-label">整體覆蓋率</span>
+                <span id="coverage-ratio" class="metric-value">—</span>
+              </div>
+              <div class="metric-row">
+                <span class="metric-label">關鍵資料</span>
+                <span id="critical-data" class="metric-value">—</span>
+              </div>
+              <div class="metric-row">
+                <span class="metric-label">事件檢查</span>
+                <span id="event-check" class="metric-value">—</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>⚠️ 風險覆寫</h2>
+            <div id="risk-overrides" class="tag-list"></div>
+          </section>
+
+          <section class="panel">
+            <h2>📭 缺少資料</h2>
+            <div id="missing-series" class="tag-list"></div>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <footer>
+      <span>本頁僅為量化決策輔助，不構成投資建議。</span>
+      <a href="./latest_signals.json" target="_blank" rel="noopener">查看原始 JSON</a>
+    </footer>
+  </main>
+
+  <script>
+    "use strict";
+
+    const MODULES = [
+      ["Market_Regime", "Market Regime"],
+      ["AI_Cycle", "AI Cycle"],
+      ["Valuation", "Valuation"],
+      ["Macro", "Macro"],
+      ["Liquidity", "Liquidity"],
+      ["Positioning", "Positioning"]
+    ];
+
+    const $ = (id) => document.getElementById(id);
+
+    function isNumber(value) {
+      return value !== null && value !== undefined && Number.isFinite(Number(value));
+    }
+
+    function formatScore(value) {
+      return isNumber(value) ? Number(value).toFixed(2) : "資料不足";
+    }
+
+    function formatPercent(value, digits = 1) {
+      return isNumber(value) ? `${Number(value).toFixed(digits)}%` : "資料不足";
+    }
+
+    function formatRatio(value) {
+      return isNumber(value) ? `${(Number(value) * 100).toFixed(1)}%` : "資料不足";
+    }
+
+    function formatGeneratedAt(value) {
+      if (!value) return "資料不足";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+
+      return new Intl.DateTimeFormat("zh-TW", {
+        timeZone: "Asia/Taipei",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).format(date);
+    }
+
+    function humanize(value) {
+      return String(value ?? "")
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function setText(id, value) {
+      $(id).textContent = value;
+    }
+
+    function renderTags(containerId, values, kind = "") {
+      const container = $(containerId);
+      container.replaceChildren();
+
+      if (!Array.isArray(values) || values.length === 0) {
+        const empty = document.createElement("span");
+        empty.className = "empty-note";
+        empty.textContent = "無";
+        container.appendChild(empty);
+        return;
+      }
+
+      values.forEach((value) => {
+        const tag = document.createElement("span");
+        tag.className = `pill ${kind}`.trim();
+        tag.textContent = humanize(value);
+        container.appendChild(tag);
+      });
+    }
+
+    function renderModules(data) {
+      const tbody = $("module-table");
+      tbody.replaceChildren();
+
+      MODULES.forEach(([key, label]) => {
+        const score = data.modules?.[key];
+        const qualityKey = key.toLowerCase();
+        const quality = data.module_data_quality?.[qualityKey];
+
+        const row = document.createElement("tr");
+        const nameCell = document.createElement("td");
+        const scoreCell = document.createElement("td");
+
+        const name = document.createElement("div");
+        name.className = "module-name";
+        name.textContent = label;
+        nameCell.appendChild(name);
+
+        if (quality) {
+          const note = document.createElement("div");
+          note.className = "module-note";
+          const coverage = isNumber(quality.coverage)
+            ? `覆蓋率 ${(Number(quality.coverage) * 100).toFixed(0)}%`
+            : "覆蓋率未知";
+          const proxy = quality.is_proxy ? " · Proxy" : "";
+          note.textContent = `${coverage}${proxy}`;
+          nameCell.appendChild(note);
+        }
+
+        scoreCell.textContent = formatScore(score);
+        if (!isNumber(score)) scoreCell.className = "missing";
+
+        row.append(nameCell, scoreCell);
+        tbody.appendChild(row);
+      });
+    }
+
+    function renderDashboard(data) {
+      const allocation = data.allocation ?? {};
+      const quality = data.data_quality ?? {};
+
+      setText("signal-date", data.signal_date ?? "資料不足");
+      setText("generated-at", formatGeneratedAt(data.generated_at));
+      setText("data-mode", data.data_mode ?? "資料不足");
+
+      setText("buy-score", formatScore(data.scores?.Buy_Score));
+      setText("risk-score", formatScore(data.scores?.Risk_Score));
+      setText("margin-score", formatScore(data.scores?.Margin_Score));
+
+      setText("action", data.action ?? "目前沒有可用的決策文字。");
+      setText("target-margin", `目標融資：${formatPercent(allocation.Target_Margin_Pct)}`);
+
+      const cashMin = allocation.Target_Cash_Min_Pct;
+      const cashMax = allocation.Target_Cash_Max_Pct;
+      const cashRange = isNumber(cashMin) && isNumber(cashMax)
+        ? `${Number(cashMin).toFixed(0)}%–${Number(cashMax).toFixed(0)}%`
+        : "資料不足";
+      setText("cash-range", `預留現金：${cashRange}`);
+
+      const ccStatus = data.covered_call?.status
+        ? humanize(data.covered_call.status)
+        : "資料不足";
+      setText("covered-call", `Covered Call：${ccStatus}`);
+
+      renderModules(data);
+      renderTags("decision-reasons", data.decision_reasons, "");
+      renderTags("risk-overrides", data.risk_overrides, "danger");
+      renderTags("missing-series", quality.missing_series, "warning");
+
+      setText("coverage-ratio", formatRatio(quality.coverage_ratio));
+      setText("critical-data", quality.critical_data_ok === true ? "正常" : "不足");
+      setText("event-check", quality.event_check_available === true ? "可用" : "不可用");
+
+      $("status").classList.add("hidden");
+      $("dashboard").classList.remove("hidden");
+    }
+
+    async function loadSignals() {
+      const url = new URL("./latest_signals.json", window.location.href);
+      url.searchParams.set("v", Date.now().toString());
+
+      const response = await fetch(url, {
+        cache: "no-store",
+        headers: { "Accept": "application/json" }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}：無法取得 ${url.pathname}`);
+      }
+
+      const text = await response.text();
+      let data;
+
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        throw new Error("latest_signals.json 不是有效的 JSON。");
+      }
+
+      if (!data || typeof data !== "object" || !data.scores || !data.modules) {
+        throw new Error("latest_signals.json 缺少必要欄位。");
+      }
+
+      renderDashboard(data);
+    }
+
+    loadSignals().catch((error) => {
+      const status = $("status");
+      status.classList.add("error");
+      status.textContent = `載入失敗：${error.message}`;
+      console.error(error);
+    });
+  </script>
+</body>
+</html>
