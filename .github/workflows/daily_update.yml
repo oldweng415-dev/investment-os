@@ -91,10 +91,10 @@ jobs:
           key: fred-data-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             fred-data-${{ runner.os }}-
-           
-       - name: Verify FRED API configuration
-         shell: bash
-         run: |
+            
+      - name: Verify FRED API configuration
+        shell: bash
+        run: |
           set -euo pipefail
 
           if [ -z "${FRED_API_KEY:-}" ]; then
