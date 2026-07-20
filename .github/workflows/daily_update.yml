@@ -3,11 +3,21 @@ name: Daily OS Update
 on:
   schedule:
     # UTC 22:30 = 台灣時間隔日 06:30
-    - cron: '30 22 * * *'
+    - cron: "30 22 * * *"
 
   workflow_dispatch:
 
-# 避免排程與手動執行同時修改 main 或部署 Pages
+  # 修改前端或主程式後自動重新產生與部署。
+  # output/** 不在 paths 內，因此 Actions 自己寫回 output 時不會無限觸發。
+  push:
+    branches:
+      - main
+    paths:
+      - "site/**"
+      - "investment_os_production.py"
+      - "requirements.txt"
+      - ".github/workflows/daily_update.yml"
+
 concurrency:
   group: investment-os-main-and-pages
   cancel-in-progress: false
@@ -17,7 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    # main 寫入與 GitHub Pages 部署所需權限
     permissions:
       contents: write
       pages: write
@@ -28,11 +37,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     env:
-      # 每日公開資料模式
       INVESTMENT_OS_DATA_MODE: live_public
-      
-      # 從 GitHub Repository Secret 傳入
-      # 沒設定時會是空字串，Python 改用 FRED 公開 CSV
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
 
     steps:
@@ -47,7 +52,7 @@ jobs:
           persist-credentials: true
 
       # ======================================================
-      # 2. 執行前先同步最新 main
+      # 2. 執行前同步最新 main
       # ======================================================
       - name: Sync latest main
         shell: bash
@@ -66,12 +71,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.10'
+          python-version: "3.10"
           cache: pip
           cache-dependency-path: requirements.txt
 
       # ======================================================
-      # 4. 安裝 requirements.txt
+      # 4. 安裝套件
       # ======================================================
       - name: Install dependencies
         shell: bash
@@ -81,9 +86,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-          echo "Installed packages:"
-          python -m pip freeze
-
+      # ======================================================
+      # 5. 還原 FRED 快取
+      # ======================================================
       - name: Restore FRED data cache
         uses: actions/cache@v4
         with:
@@ -91,7 +96,10 @@ jobs:
           key: fred-data-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             fred-data-${{ runner.os }}-
-            
+
+      # ======================================================
+      # 6. 確認 FRED Secret 已傳入
+      # ======================================================
       - name: Verify FRED API configuration
         shell: bash
         run: |
@@ -103,76 +111,73 @@ jobs:
           fi
 
           echo "FRED_API_KEY is configured."
-      
+
       # ======================================================
-      # 5. 確認主程式存在
+      # 7. 驗證原始檔案
       # ======================================================
       - name: Validate source files
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ ! -f "investment_os_production.py" ]; then
+          test -f investment_os_production.py || {
             echo "ERROR: investment_os_production.py does not exist."
             exit 1
-          fi
+          }
 
-          if [ ! -f "requirements.txt" ]; then
+          test -f requirements.txt || {
             echo "ERROR: requirements.txt does not exist."
             exit 1
-          fi
+          }
 
-          # Python 語法檢查
+          test -f site/index.html || {
+            echo "ERROR: site/index.html does not exist."
+            exit 1
+          }
+
           python -m py_compile investment_os_production.py
-
           echo "Source validation passed."
 
       # ======================================================
-      # 6. 執行 Investment OS
+      # 8. 執行 Investment OS
       # ======================================================
       - name: Run OS Engine
         shell: bash
         run: |
           set -euo pipefail
-
           python investment_os_production.py
 
       # ======================================================
-      # 7. 驗證五個必要輸出
+      # 9. 驗證輸出
       # ======================================================
       - name: Validate output
         shell: bash
         run: |
           set -euo pipefail
 
-          REQUIRED_FILES=(
+          REQUIRED_NONEMPTY_FILES=(
             "output/latest_signals.json"
             "output/score_history.csv"
             "output/module_data_quality.csv"
             "output/raw_indicator_snapshot.csv"
-            "output/warnings.log"
           )
 
-          for file in "${REQUIRED_FILES[@]}"; do
-            if [ ! -f "$file" ]; then
-              echo "ERROR: Required output was not generated: $file"
-              echo "Current repository files:"
-              find . -maxdepth 3 -type f | sort
-              exit 1
-            fi
-
+          for file in "${REQUIRED_NONEMPTY_FILES[@]}"; do
             if [ ! -s "$file" ]; then
-              echo "ERROR: Required output is empty: $file"
+              echo "ERROR: Required output is missing or empty: $file"
+              find output -maxdepth 2 -type f -print 2>/dev/null | sort || true
               exit 1
             fi
           done
 
-          # JSON 格式驗證
-          python -m json.tool \
-            output/latest_signals.json \
-            > /dev/null
+          # warnings.log 可以是空檔，但必須存在。
+          if [ ! -f "output/warnings.log" ]; then
+            echo "ERROR: output/warnings.log was not generated."
+            exit 1
+          fi
 
-          # JSON 與 CSV 基本欄位驗證
+          python -m json.tool output/latest_signals.json > /dev/null
+
           python - <<'PY'
           import json
           from pathlib import Path
@@ -181,8 +186,7 @@ jobs:
 
           output_dir = Path("output")
 
-          with open(
-              output_dir / "latest_signals.json",
+          with (output_dir / "latest_signals.json").open(
               "r",
               encoding="utf-8",
           ) as handle:
@@ -204,10 +208,9 @@ jobs:
           }
 
           missing_json_keys = required_json_keys - set(payload)
-
           if missing_json_keys:
               raise AssertionError(
-                  f"latest_signals.json missing keys: "
+                  "latest_signals.json missing keys: "
                   f"{sorted(missing_json_keys)}"
               )
 
@@ -216,12 +219,7 @@ jobs:
               "Risk_Score",
               "Margin_Score",
           }
-
-          missing_scores = (
-              required_scores
-              - set(payload.get("scores", {}))
-          )
-
+          missing_scores = required_scores - set(payload.get("scores", {}))
           if missing_scores:
               raise AssertionError(
                   f"scores missing keys: {sorted(missing_scores)}"
@@ -235,21 +233,13 @@ jobs:
               "Liquidity",
               "Positioning",
           }
-
-          missing_modules = (
-              required_modules
-              - set(payload.get("modules", {}))
-          )
-
+          missing_modules = required_modules - set(payload.get("modules", {}))
           if missing_modules:
               raise AssertionError(
                   f"modules missing keys: {sorted(missing_modules)}"
               )
 
-          history = pd.read_csv(
-              output_dir / "score_history.csv"
-          )
-
+          history = pd.read_csv(output_dir / "score_history.csv")
           required_history_columns = {
               "date",
               "Market_Regime",
@@ -264,22 +254,14 @@ jobs:
               "Target_Margin_Pct",
               "Coverage_Ratio",
           }
-
-          missing_history = (
-              required_history_columns
-              - set(history.columns)
-          )
-
+          missing_history = required_history_columns - set(history.columns)
           if missing_history:
               raise AssertionError(
-                  f"score_history.csv missing columns: "
+                  "score_history.csv missing columns: "
                   f"{sorted(missing_history)}"
               )
 
-          quality = pd.read_csv(
-              output_dir / "module_data_quality.csv"
-          )
-
+          quality = pd.read_csv(output_dir / "module_data_quality.csv")
           required_quality_columns = {
               "signal_date",
               "module",
@@ -290,23 +272,26 @@ jobs:
               "missing_inputs",
               "stale_inputs",
           }
-
-          missing_quality = (
-              required_quality_columns
-              - set(quality.columns)
-          )
-
+          missing_quality = required_quality_columns - set(quality.columns)
           if missing_quality:
               raise AssertionError(
-                  f"module_data_quality.csv missing columns: "
+                  "module_data_quality.csv missing columns: "
                   f"{sorted(missing_quality)}"
               )
 
-          target_margin = payload["allocation"]["Target_Margin_Pct"]
-          risk_score = payload["scores"]["Risk_Score"]
-          liquidity_score = payload["modules"]["Liquidity"]
-          margin_score = payload["scores"]["Margin_Score"]
-          coverage = payload["data_quality"]["coverage_ratio"]
+          allocation = payload.get("allocation", {})
+          scores = payload.get("scores", {})
+          modules = payload.get("modules", {})
+          data_quality = payload.get("data_quality", {})
+
+          target_margin = allocation.get("Target_Margin_Pct")
+          risk_score = scores.get("Risk_Score")
+          liquidity_score = modules.get("Liquidity")
+          margin_score = scores.get("Margin_Score")
+          coverage = data_quality.get("coverage_ratio")
+
+          if target_margin is None:
+              raise AssertionError("Target_Margin_Pct is missing")
 
           assert 0 <= target_margin <= 20
 
@@ -323,29 +308,15 @@ jobs:
               assert target_margin == 0
 
           print("JSON and CSV validation passed.")
-          print(
-              "Signal date:",
-              payload["signal_date"],
-          )
-          print(
-              "Scores:",
-              payload["scores"],
-          )
-          print(
-              "Allocation:",
-              payload["allocation"],
-          )
+          print("Signal date:", payload["signal_date"])
+          print("Scores:", payload["scores"])
+          print("Allocation:", payload["allocation"])
           PY
 
-          echo "All output validation passed."
-
-          echo "Generated latest_signals.json:"
-          cat output/latest_signals.json
-
       # ======================================================
-      # 8. 把 output 寫回 main
+      # 10. 將 output 寫回 main
       # ======================================================
-      - name: Commit and Push output to main
+      - name: Commit and push output to main
         shell: bash
         run: |
           set -euo pipefail
@@ -353,38 +324,26 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # 保存本次程式產生的 output
           rm -rf /tmp/investment-os-output
           mkdir -p /tmp/investment-os-output
-
           cp -a output/. /tmp/investment-os-output/
 
           for attempt in 1 2 3; do
-            echo "======================================"
             echo "Commit/push attempt ${attempt}/3"
-            echo "======================================"
 
-            # 每次 push 前取得最新 main
             git fetch origin main
             git reset --hard origin/main
 
-            # 放回本次產出的 output
             mkdir -p output
             cp -a /tmp/investment-os-output/. output/
-
-            # 相容目前前端使用的 raw.githubusercontent.com 路徑
-            # 在 main 根目錄同步一份最新 JSON
-            cp output/latest_signals.json latest_signals.json
-
-            git add output/ latest_signals.json
+            git add output/
 
             if git diff --cached --quiet; then
               echo "No output changes detected."
               break
             fi
 
-            git commit \
-              -m "Update OS signals: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git commit -m "Update OS signals: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 
             if git push origin HEAD:main; then
               echo "Push to main completed successfully."
@@ -400,15 +359,12 @@ jobs:
             sleep $((attempt * 3))
           done
 
-          # 確保後續 Pages 步驟仍使用本次 output
+          # reset/commit 過程後，重新放回本次輸出供 Pages 使用。
           mkdir -p output
           cp -a /tmp/investment-os-output/. output/
 
-          # 同步根目錄 JSON
-          cp output/latest_signals.json latest_signals.json
-
       # ======================================================
-      # 9. 準備 GitHub Pages 網站檔案
+      # 11. 從 main/site 建立 Pages Artifact
       # ======================================================
       - name: Prepare GitHub Pages site
         shell: bash
@@ -416,62 +372,39 @@ jobs:
           set -euo pipefail
 
           rm -rf /tmp/pages-site
-          mkdir -p /tmp/pages-site
-
-          # 讀取現有 gh-pages 網站，
-          # 保留 index.html、CSS、JavaScript 等前端檔案
-          git fetch origin gh-pages
-
-          git archive origin/gh-pages \
-            | tar -x -C /tmp/pages-site
-
           mkdir -p /tmp/pages-site/output
 
-          # 首頁常用的根目錄 JSON
-          cp \
-            output/latest_signals.json \
-            /tmp/pages-site/latest_signals.json
+          # 前端原始碼由 main/site 維護，不再讀取 gh-pages 舊資產。
+          cp -a site/. /tmp/pages-site/
 
-          # 完整資料放在 output/
-          cp \
-            output/latest_signals.json \
-            /tmp/pages-site/output/latest_signals.json
+          # 首頁以同來源相對路徑讀取這一份。
+          cp output/latest_signals.json /tmp/pages-site/latest_signals.json
 
-          cp \
-            output/score_history.csv \
-            /tmp/pages-site/output/score_history.csv
+          # 保留完整資料檔供查閱或未來擴充圖表。
+          cp output/latest_signals.json /tmp/pages-site/output/latest_signals.json
+          cp output/score_history.csv /tmp/pages-site/output/score_history.csv
+          cp output/module_data_quality.csv /tmp/pages-site/output/module_data_quality.csv
+          cp output/raw_indicator_snapshot.csv /tmp/pages-site/output/raw_indicator_snapshot.csv
 
-          cp \
-            output/module_data_quality.csv \
-            /tmp/pages-site/output/module_data_quality.csv
-
-          cp \
-            output/raw_indicator_snapshot.csv \
-            /tmp/pages-site/output/raw_indicator_snapshot.csv
-
-          # 不將 warnings.log 公開部署到網站
           touch /tmp/pages-site/.nojekyll
 
-          echo "Pages site files:"
+          test -s /tmp/pages-site/index.html
+          python -m json.tool /tmp/pages-site/latest_signals.json > /dev/null
+
+          echo "Pages artifact files:"
           find /tmp/pages-site -maxdepth 3 -type f | sort
 
       # ======================================================
-      # 10. 設定 GitHub Pages
+      # 12. 設定與部署 GitHub Pages
       # ======================================================
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      # ======================================================
-      # 11. 上傳 Pages Artifact
-      # ======================================================
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: /tmp/pages-site
 
-      # ======================================================
-      # 12. 正式部署 Pages
-      # ======================================================
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
