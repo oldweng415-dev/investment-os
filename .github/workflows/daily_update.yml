@@ -30,10 +30,9 @@ jobs:
     env:
       # 每日公開資料模式
       INVESTMENT_OS_DATA_MODE: live_public
-      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-
-      # 沒設定 Secret 時會是空值，
-      # Python 會自動改用 FRED 公開 CSV
+      
+      # 從 GitHub Repository Secret 傳入
+      # 沒設定時會是空字串，Python 改用 FRED 公開 CSV
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
 
     steps:
