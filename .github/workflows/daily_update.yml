@@ -16,6 +16,7 @@ on:
       - "site/**"
       - "investment_os_production.py"
       - "requirements.txt"
+      - "collectors/**"
       - ".github/workflows/daily_update.yml"
 
 concurrency:
@@ -99,57 +100,9 @@ jobs:
             fred-data-${{ runner.os }}-
 
       # ======================================================
-      - name: Collect free public PIT data
-        shell: bash
-        env:
-          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
-          CFTC_APP_TOKEN: ${{ secrets.CFTC_APP_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          python collectors/collect_free_data.py
-
-          echo "Collected PIT files:"
-          find data \
-            -maxdepth 1 \
-            -type f \
-            -name "*.csv" \
-            -print \
-            | sort
-
+      # 6. 驗證外部資料設定
       # ======================================================
-      - name: Commit collected PIT data
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add \
-            data/valuation_pit.csv \
-            data/ai_cycle_pit.csv \
-            data/positioning_pit.csv \
-            data/macro_nowcast_pit.csv \
-            data/events.csv \
-            2>/dev/null || true
-
-          if git diff --cached --quiet; then
-            echo "No PIT data changes."
-          else
-            git commit \
-              -m "Update free public PIT data [skip ci]"
-
-            git push origin HEAD:main
-          fi
-            
-
-      # ======================================================
-      # 6. 確認 FRED Secret 已傳入
-      # ======================================================
-      - name: Verify FRED API configuration
+      - name: Verify external data configuration
         shell: bash
         run: |
           set -euo pipefail
@@ -159,27 +112,92 @@ jobs:
             exit 1
           fi
 
+          if [ -z "${SEC_USER_AGENT:-}" ]; then
+            echo "::error::SEC_USER_AGENT is empty or unavailable."
+            echo "Create it under Settings → Secrets and variables → Actions → Variables."
+            exit 1
+          fi
+
           echo "FRED_API_KEY is configured."
+          echo "SEC_USER_AGENT is configured."
 
       # ======================================================
-      # 7. 收集免費 SEC Valuation 資料
+      # 7. 收集並驗證免費 SEC Valuation
       # ======================================================
-      - name: Collect free SEC valuation
+      - name: Collect and validate free SEC valuation
         shell: bash
         run: |
           set -euo pipefail
 
-          python -m py_compile collectors/collect_free_data.py
+          echo "Working directory:"
+          pwd
 
-          python collectors/collect_free_data.py
+          echo "Collector file:"
+          ls -l collectors/collect_free_data.py
+
+          echo "Collector ending:"
+          tail -n 12 collectors/collect_free_data.py
+
+          python -m py_compile collectors/collect_free_data.py
+          python -u collectors/collect_free_data.py
 
           if [ ! -s "data/valuation_pit.csv" ]; then
             echo "::error::data/valuation_pit.csv was not generated."
+            echo "Current data directory:"
+            find data -maxdepth 2 -type f -print 2>/dev/null | sort || true
             exit 1
           fi
 
-          echo "Latest valuation rows:"
-          tail -n 5 data/valuation_pit.csv
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+
+          path = Path("data/valuation_pit.csv")
+          frame = pd.read_csv(path)
+
+          required_columns = {
+              "observation_date",
+              "release_timestamp",
+              "effective_trade_date",
+              "asset",
+              "metric",
+              "value",
+              "score",
+              "source",
+              "is_proxy",
+          }
+
+          missing_columns = required_columns - set(frame.columns)
+          if missing_columns:
+              raise AssertionError(
+                  "valuation_pit.csv missing columns: "
+                  f"{sorted(missing_columns)}"
+              )
+
+          required_metrics = {
+              "trailing_pe",
+              "earnings_yield",
+              "fcf_yield",
+              "erp",
+          }
+
+          actual_metrics = set(
+              frame["metric"].dropna().astype(str).str.lower()
+          )
+          missing_metrics = required_metrics - actual_metrics
+
+          if missing_metrics:
+              raise AssertionError(
+                  "valuation_pit.csv missing metrics: "
+                  f"{sorted(missing_metrics)}"
+              )
+
+          if frame.empty:
+              raise AssertionError("valuation_pit.csv is empty")
+
+          print("valuation_pit.csv validation passed.")
+          print(frame.tail(4).to_string(index=False))
+          PY
 
       # ======================================================
       # 8. 保存免費 Valuation PIT 歷史
