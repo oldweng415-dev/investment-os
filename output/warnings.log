@@ -1,6 +1,6 @@
-2026-07-21 11:28:05,837 | INFO | Starting Investment OS production engine; mode=live_public
-2026-07-21 11:28:10,862 | WARNING | Optional file missing: data/ai_cycle_pit.csv
-2026-07-21 11:28:10,862 | WARNING | Optional file missing: data/positioning_pit.csv
-2026-07-21 11:28:10,863 | WARNING | Optional file missing: data/macro_nowcast_pit.csv
-2026-07-21 11:28:11,477 | WARNING | Optional file missing: data/events.csv
-2026-07-21 11:28:11,751 | INFO | Completed: Buy=63.24 Risk=50.11 Margin=61.23 Target=5.0% CC=HOLD_EXISTING_CC
+2026-07-21 11:30:01,674 | INFO | Starting Investment OS production engine; mode=live_public
+2026-07-21 11:30:24,371 | WARNING | Optional file missing: data/ai_cycle_pit.csv
+2026-07-21 11:30:24,372 | WARNING | Optional file missing: data/positioning_pit.csv
+2026-07-21 11:30:24,372 | WARNING | Optional file missing: data/macro_nowcast_pit.csv
+2026-07-21 11:30:24,814 | WARNING | Optional file missing: data/events.csv
+2026-07-21 11:30:25,023 | INFO | Completed: Buy=53.94 Risk=41.99 Margin=45.71 Target=0.2% CC=HOLD_EXISTING_CC

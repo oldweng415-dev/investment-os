@@ -1,26 +1,26 @@
 {
   "signal_date": "2026-07-20",
-  "generated_at": "2026-07-21T11:28:11.479474+00:00",
+  "generated_at": "2026-07-21T11:30:24.815846+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
-    "Buy_Score": 63.24,
-    "Risk_Score": 50.11,
-    "Margin_Score": 61.23,
-    "Carry_Score": null
+    "Buy_Score": 53.94,
+    "Risk_Score": 41.99,
+    "Margin_Score": 45.71,
+    "Carry_Score": 0.0
   },
   "modules": {
     "Market_Regime": 75.77,
     "AI_Cycle": null,
-    "Valuation": null,
+    "Valuation": 30.13,
     "Macro": 43.82,
     "Liquidity": 54.65,
     "Positioning": 62.74
   },
   "allocation": {
-    "Target_Margin_Pct": 5.0,
-    "Target_Cash_Min_Pct": 10,
-    "Target_Cash_Max_Pct": 15
+    "Target_Margin_Pct": 0.2,
+    "Target_Cash_Min_Pct": 15,
+    "Target_Cash_Max_Pct": 25
   },
   "covered_call": {
     "status": "HOLD_EXISTING_CC",
@@ -29,25 +29,28 @@
     ],
     "strike_recommendation_available": false
   },
-  "action": "僅限核心 ETF 小量分批；目標融資 5.0%，現金 10%–15%。",
+  "action": "僅限核心 ETF 小量分批；目標融資 0.2%，現金 15%–25%。",
   "effective_module_weights": {
     "buy": {
-      "market_regime": 0.384615,
-      "macro": 0.153846,
-      "liquidity": 0.153846,
-      "positioning": 0.307692
+      "market_regime": 0.294118,
+      "valuation": 0.235294,
+      "macro": 0.117647,
+      "liquidity": 0.117647,
+      "positioning": 0.235294
     },
     "risk": {
-      "market_regime": 0.352941,
-      "macro": 0.235294,
-      "liquidity": 0.294118,
-      "positioning": 0.117647
+      "market_regime": 0.333333,
+      "valuation": 0.055556,
+      "macro": 0.222222,
+      "liquidity": 0.277778,
+      "positioning": 0.111111
     },
     "margin": {
-      "market_regime": 0.333333,
-      "macro": 0.133333,
-      "liquidity": 0.333333,
-      "positioning": 0.2
+      "market_regime": 0.263158,
+      "valuation": 0.210526,
+      "macro": 0.105263,
+      "liquidity": 0.263158,
+      "positioning": 0.157895
     }
   },
   "module_data_quality": {
@@ -79,11 +82,16 @@
       "last_updated": "2026-07-20"
     },
     "valuation": {
-      "score": null,
-      "available": false,
-      "coverage": 0.0,
+      "score": 30.13,
+      "available": true,
+      "coverage": 1.0,
       "is_proxy": true,
-      "effective_weights": {},
+      "effective_weights": {
+        "trailing_pe": 0.3,
+        "fcf_yield": 0.25,
+        "earnings_yield": 0.25,
+        "erp": 0.2
+      },
       "missing_inputs": [],
       "stale_inputs": [],
       "last_updated": "2026-07-20"
@@ -140,10 +148,10 @@
     }
   },
   "data_quality": {
-    "coverage_ratio": 0.615,
-    "buy_coverage": 0.5125,
-    "risk_coverage": 0.74,
-    "margin_coverage": 0.635,
+    "coverage_ratio": 0.735,
+    "buy_coverage": 0.7125,
+    "risk_coverage": 0.79,
+    "margin_coverage": 0.835,
     "critical_data_ok": true,
     "stale_series": [],
     "missing_series": [
@@ -159,22 +167,18 @@
       "valuation"
     ],
     "unavailable_modules": [
-      "ai_cycle",
-      "valuation"
+      "ai_cycle"
     ],
     "event_check_available": false
   },
-  "risk_overrides": [
-    "Low_Data_Coverage"
-  ],
+  "risk_overrides": [],
   "decision_reasons": [
-    "Normal_accumulation_zone",
-    "Margin_capped_without_valuation_or_carry"
+    "Small_ETF_accumulation_zone"
   ],
   "modifiers": {
     "panic_bonus": 0.0,
     "euphoria_penalty": 0.0,
-    "expected_return_spread_pct_points": null
+    "expected_return_spread_pct_points": -232.0234
   },
   "upcoming_events": [],
   "raw_indicators": {
@@ -184,10 +188,10 @@
     "market_regime.breadth_score": 100.0,
     "market_regime.hy_oas": 2.73,
     "market_regime.hy_oas_percentile": null,
-    "valuation.trailing_pe": null,
-    "valuation.fcf_yield": null,
-    "valuation.earnings_yield": null,
-    "valuation.erp": null,
+    "valuation.trailing_pe": 33.5959,
+    "valuation.fcf_yield": 1.7862,
+    "valuation.earnings_yield": 2.9766,
+    "valuation.erp": 0.6665,
     "macro.core_pce_3m_annualized": 3.5226,
     "macro.sahm_style_gap": 0.0667,
     "macro.claims_4w_26w_ratio": 1.0039,
