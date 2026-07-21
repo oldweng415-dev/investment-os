@@ -1,7 +1,7 @@
 signal_date,module,score,available,coverage,is_proxy,effective_weights,missing_inputs,stale_inputs,last_updated
 2026-07-20,market_regime,75.77,True,0.85,True,"{""spy_trend"": 0.294118, ""qqq_trend"": 0.294118, ""soxx_trend"": 0.235294, ""breadth"": 0.176471}",[],[],2026-07-20
 2026-07-20,ai_cycle,,False,0.0,False,{},"[""ai_cycle_pit.csv""]",[],2026-07-20
-2026-07-20,valuation,,False,0.0,False,{},"[""valuation_pit.csv""]",[],2026-07-20
+2026-07-20,valuation,,False,0.0,True,{},[],[],2026-07-20
 2026-07-20,macro,43.82,True,0.9,True,"{""core_pce"": 0.277778, ""employment_gap"": 0.222222, ""initial_claims"": 0.277778, ""yield_curve"": 0.222222}","[""macro_nowcast_pit.csv""]",[],2026-07-20
 2026-07-20,liquidity,54.65,True,1.0,True,"{""nfl_13w_change"": 0.35, ""reserve_balances"": 0.25, ""rrp_inverse"": 0.15, ""tga_inverse"": 0.15, ""real_m2"": 0.1}",[],[],2026-07-20
-2026-07-20,positioning,65.06,True,0.4,False,"{""vix_percentile"": 0.625, ""skew"": 0.375}","[""cftc_or_flow"", ""equity_put_call""]",[],2026-07-20
+2026-07-20,positioning,62.74,True,0.55,False,"{""vix_percentile"": 0.454545, ""skew"": 0.272727, ""vvix"": 0.272727}","[""cftc_or_flow"", ""equity_put_call""]",[],2026-07-20
