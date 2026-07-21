@@ -43,7 +43,7 @@ class Config:
         "daily_market_indicator": 7,
         "weekly_macro": 14,
         "monthly_macro": 45,
-        "quarterly_fundamental": 120,
+        "quarterly_fundamental": 150,
     })
 
     module_base_weights: Dict[str, float] = field(default_factory=lambda: {
@@ -636,12 +636,19 @@ def calculate_valuation(calendar: pd.DatetimeIndex, cfg: Config, logger: logging
         if cfg.data_mode == "strict_pit":
             raise RuntimeError("strict_pit requires valuation_pit.csv")
         return ModuleResult("valuation", blank, pd.Series(0.0, index=calendar), pd.DataFrame(index=calendar), {}, False, ["valuation_pit.csv"], [], {}), None
-    directions = {"forward_pe": False, "trailing_pe": False, "ev_ebitda": False,
-                  "fcf_yield": True, "earnings_yield": True,
-                  "forward_earnings_yield": True, "erp": True}
-    base_weights = {"forward_pe": .20, "trailing_pe": .10, "ev_ebitda": .15,
-                    "fcf_yield": .20, "earnings_yield": .20,
-                    "forward_earnings_yield": .10, "erp": .05}
+    directions = {
+        "trailing_pe": False,
+        "fcf_yield": True,
+        "earnings_yield": True,
+        "erp": True,
+    }
+
+    base_weights = {
+        "trailing_pe": 0.30,
+        "fcf_yield": 0.25,
+        "earnings_yield": 0.25,
+        "erp": 0.20,
+    }
     comps, raw, proxies = {}, {}, []
     for metric, high_good in directions.items():
         x = frame[frame["metric"].astype(str).str.lower() == metric]
@@ -672,8 +679,17 @@ def calculate_ai_cycle(calendar: pd.DatetimeIndex, cfg: Config, logger: logging.
         if cfg.data_mode == "strict_pit":
             raise RuntimeError("strict_pit requires ai_cycle_pit.csv")
         return ModuleResult("ai_cycle", blank, pd.Series(0.0, index=calendar), pd.DataFrame(index=calendar), {}, False, ["ai_cycle_pit.csv"], [], {})
-    weights0 = {"nvidia_dc_yoy": .30, "hyperscaler_capex_yoy": .30,
-                "tsmc_hpc_growth": .20, "micron_dc_hbm_score": .20}
+    weights0 = {
+         # NVIDIA 全公司營收 YoY，只能標示為 Proxy
+         "nvidia_revenue_yoy_proxy": 0.35,
+
+         # MSFT、META、GOOGL、AMZN CapEx YoY
+         "hyperscaler_capex_yoy": 0.45,
+
+         # 公司自訂揭露，沒有可靠資料時維持 unavailable
+         "tsmc_hpc_growth": 0.10,
+         "micron_dc_hbm_score": 0.10,
+    }
     comps, raw, proxies = {}, {}, []
     for metric in weights0:
         x = frame[frame["metric"].astype(str).str.lower() == metric]
@@ -693,24 +709,132 @@ def calculate_ai_cycle(calendar: pd.DatetimeIndex, cfg: Config, logger: logging.
     return ModuleResult("ai_cycle", score, coverage, frame2, weights, any(proxies), [k for k in weights0 if k not in frame2], [], raw)
 
 
-def load_positioning_pit(calendar: pd.DatetimeIndex, cfg: Config, logger: logging.Logger) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series], Dict[str, bool]]:
-    required = {"observation_date", "release_timestamp", "effective_trade_date", "metric", "value", "source", "is_proxy"}
-    frame = load_optional_csv(cfg.data_directory / "positioning_pit.csv", required, logger)
+def load_positioning_pit(
+    calendar: pd.DatetimeIndex,
+    cfg: Config,
+    logger: logging.Logger,
+) -> Tuple[
+    Dict[str, pd.Series],
+    Dict[str, pd.Series],
+    Dict[str, bool],
+]:
+    required = {
+        "observation_date",
+        "release_timestamp",
+        "effective_trade_date",
+        "metric",
+        "value",
+        "source",
+        "is_proxy",
+    }
+
+    frame = load_optional_csv(
+        cfg.data_directory / "positioning_pit.csv",
+        required,
+        logger,
+    )
+
     if frame.empty:
         return {}, {}, {}
-    directions = {"equity_put_call": True, "cftc_positioning": False,
-                  "etf_primary_flow": False, "iv30": True, "rv20": True}
-    scores, raw, proxies = {}, {}, {}
-    for metric, high_good in directions.items():
-        x = frame[frame["metric"].astype(str).str.lower() == metric]
+
+    metric_config = {
+        "equity_put_call": {
+            "high_good": True,
+            "frequency": "daily",
+            "max_age": cfg.max_staleness_days[
+                "daily_market_indicator"
+            ],
+        },
+        "cftc_positioning": {
+            "high_good": False,
+            "frequency": "weekly",
+            "max_age": cfg.max_staleness_days[
+                "weekly_macro"
+            ],
+        },
+        "etf_primary_flow": {
+            "high_good": False,
+            "frequency": "daily",
+            "max_age": cfg.max_staleness_days[
+                "daily_market_indicator"
+            ],
+        },
+        "iv30": {
+            "high_good": True,
+            "frequency": "daily",
+            "max_age": cfg.max_staleness_days[
+                "daily_market_indicator"
+            ],
+        },
+        "rv20": {
+            "high_good": True,
+            "frequency": "daily",
+            "max_age": cfg.max_staleness_days[
+                "daily_market_indicator"
+            ],
+        },
+    }
+
+    scores: Dict[str, pd.Series] = {}
+    raw: Dict[str, pd.Series] = {}
+    proxies: Dict[str, bool] = {}
+
+    for metric, settings in metric_config.items():
+        x = frame[
+            frame["metric"]
+            .astype(str)
+            .str.lower()
+            .eq(metric)
+        ].copy()
+
         if x.empty:
             continue
-        raw_event = x.sort_values(["effective_trade_date", "release_timestamp"]).groupby("effective_trade_date")["value"].last().dropna()
-        raw[metric] = align_event_series(raw_event, calendar, cfg.max_staleness_days["daily_market_indicator"], f"positioning_raw:{metric}", bool(x["is_proxy"].fillna(False).any())).value
+
+        x = x.sort_values(
+            [
+                "effective_trade_date",
+                "release_timestamp",
+            ]
+        )
+
+        raw_event = (
+            x.groupby("effective_trade_date")["value"]
+            .last()
+            .dropna()
+        )
+
+        proxy = bool(
+            x["is_proxy"]
+            .fillna(False)
+            .any()
+        )
+
+        raw[metric] = align_event_series(
+            raw_event,
+            calendar,
+            settings["max_age"],
+            f"positioning_raw:{metric}",
+            proxy,
+        ).value
+
         if metric not in {"iv30", "rv20"}:
-            event = event_metric_score(frame, metric, high_good, "daily")
-            scores[metric] = align_event_series(event, calendar, cfg.max_staleness_days["daily_market_indicator"], f"positioning:{metric}", bool(x["is_proxy"].fillna(False).any())).value
-        proxies[metric] = bool(x["is_proxy"].fillna(False).any())
+            score_event = event_metric_score(
+                frame,
+                metric,
+                settings["high_good"],
+                settings["frequency"],
+            )
+
+            scores[metric] = align_event_series(
+                score_event,
+                calendar,
+                settings["max_age"],
+                f"positioning:{metric}",
+                proxy,
+            ).value
+
+        proxies[metric] = proxy
+
     return scores, raw, proxies
 
 
@@ -1015,10 +1139,58 @@ def determine_target_cash(buy: float, risk: float) -> Tuple[int, int]:
     return 15, 25
 
 
-def load_events(cfg: Config, logger: logging.Logger) -> Tuple[pd.DataFrame, bool]:
-    required = {"event_date", "asset", "event_type", "description", "source"}
-    frame = load_optional_csv(cfg.data_directory / "events.csv", required, logger)
-    return (frame, not frame.empty)
+def load_events(
+    cfg: Config,
+    logger: logging.Logger,
+) -> Tuple[pd.DataFrame, bool]:
+    required = {
+        "event_date",
+        "asset",
+        "event_type",
+        "description",
+        "source",
+    }
+
+    frame = load_optional_csv(
+        cfg.data_directory / "events.csv",
+        required,
+        logger,
+    )
+
+    if frame.empty:
+        return frame, False
+
+    required_scopes = {
+        "MARKET",
+        "NVDA",
+        "MSFT",
+        "META",
+        "GOOGL",
+        "AMZN",
+    }
+
+    available_scopes = set(
+        frame["asset"]
+        .dropna()
+        .astype(str)
+        .str.upper()
+    )
+
+    complete = required_scopes.issubset(
+        available_scopes
+    )
+
+    if not complete:
+        missing = sorted(
+            required_scopes - available_scopes
+        )
+
+        logger.warning(
+            "Event calendar incomplete; missing scopes: %s",
+            missing,
+        )
+
+    return frame, complete
 
 
 def upcoming_events(events: pd.DataFrame, date: pd.Timestamp, calendar: pd.DatetimeIndex, n: int = 10) -> List[Dict[str, Any]]:
