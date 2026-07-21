@@ -97,6 +97,25 @@ jobs:
           restore-keys: |
             fred-data-${{ runner.os }}-
 
+            - name: Collect free public PIT data
+        shell: bash
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+          CFTC_APP_TOKEN: ${{ secrets.CFTC_APP_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          python collectors/collect_free_data.py
+
+          echo "Collected PIT files:"
+          find data \
+            -maxdepth 1 \
+            -type f \
+            -name "*.csv" \
+            -print \
+            | sort
+
       # ======================================================
       # 6. 確認 FRED Secret 已傳入
       # ======================================================
