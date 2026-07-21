@@ -228,6 +228,7 @@ jobs:
           }
 
           python -m py_compile investment_os_production.py
+          python -m py_compile collectors/collect_free_data.py
           echo "Source validation passed."
 
       # ======================================================
