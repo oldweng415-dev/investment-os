@@ -305,6 +305,7 @@ jobs:
 
           required_json_keys = {
               "signal_date",
+              "decision_date",
               "generated_at",
               "data_mode",
               "scores",
