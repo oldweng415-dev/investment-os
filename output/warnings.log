@@ -1,7 +1,8 @@
-2026-07-21 06:47:12,220 | INFO | Starting Investment OS production engine; mode=live_public
-2026-07-21 06:47:16,716 | WARNING | Optional file missing: data/valuation_pit.csv
-2026-07-21 06:47:16,717 | WARNING | Optional file missing: data/ai_cycle_pit.csv
-2026-07-21 06:47:16,717 | WARNING | Optional file missing: data/positioning_pit.csv
-2026-07-21 06:47:16,718 | WARNING | Optional file missing: data/macro_nowcast_pit.csv
-2026-07-21 06:47:17,380 | WARNING | Optional file missing: data/events.csv
-2026-07-21 06:47:17,672 | INFO | Completed: Buy=63.24 Risk=50.11 Margin=61.23 Target=5.0% CC=HOLD_EXISTING_CC
+2026-07-21 06:54:05,973 | INFO | Starting Investment OS production engine; mode=live_public
+2026-07-21 06:54:08,398 | WARNING | Missing market ticker: ^VVIX
+2026-07-21 06:54:11,760 | WARNING | Optional file missing: data/valuation_pit.csv
+2026-07-21 06:54:11,761 | WARNING | Optional file missing: data/ai_cycle_pit.csv
+2026-07-21 06:54:11,761 | WARNING | Optional file missing: data/positioning_pit.csv
+2026-07-21 06:54:11,762 | WARNING | Optional file missing: data/macro_nowcast_pit.csv
+2026-07-21 06:54:12,324 | WARNING | Optional file missing: data/events.csv
+2026-07-21 06:54:12,606 | INFO | Completed: Buy=63.66 Risk=50.04 Margin=40.0 Target=0.0% CC=STOP_NEW_CC
