@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 import requests
 import yfinance as yf
 from requests.adapters import HTTPAdapter
@@ -231,6 +232,45 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("annual_borrow_rate must be between 0 and 0.30")
     if not 0 < cfg.max_target_margin_pct <= 20:
         raise ValueError("max_target_margin_pct must be in (0, 20]")
+
+def next_nyse_session_after(
+    signal_date: pd.Timestamp,
+) -> pd.Timestamp:
+    """
+    取得 signal_date 之後的下一個 NYSE 交易日。
+
+    signal_date：
+        最新完成的市場收盤日
+
+    回傳值：
+        這份訊號真正用來做交易決策的日期
+    """
+
+    signal = pd.Timestamp(
+        signal_date
+    ).tz_localize(None).normalize()
+
+    nyse = mcal.get_calendar("NYSE")
+
+    schedule = nyse.schedule(
+        start_date=(
+            signal
+            + pd.Timedelta(days=1)
+        ).date(),
+        end_date=(
+            signal
+            + pd.Timedelta(days=14)
+        ).date(),
+    )
+
+    if schedule.empty:
+        raise RuntimeError(
+            "Unable to resolve next NYSE session."
+        )
+
+    return pd.Timestamp(
+        schedule.index[0]
+    ).tz_localize(None)
 
 
 # ============================================================
@@ -626,16 +666,74 @@ def event_metric_score(frame: pd.DataFrame, metric: str, high_good: bool, freque
     return (pct if high_good else inverse_percentile_score(pct)).dropna()
 
 
-def calculate_valuation(calendar: pd.DatetimeIndex, cfg: Config, logger: logging.Logger) -> Tuple[ModuleResult, Optional[pd.Series]]:
-    blank = pd.Series(np.nan, index=calendar)
+def calculate_valuation(
+    calendar: pd.DatetimeIndex,
+    cfg: Config,
+    logger: logging.Logger,
+) -> Tuple[
+    ModuleResult,
+    Optional[pd.Series],
+]:
+    blank = pd.Series(
+        np.nan,
+        index=calendar,
+    )
+
     if cfg.data_mode == "market_only":
-        return ModuleResult("valuation", blank, pd.Series(0.0, index=calendar), pd.DataFrame(index=calendar), {}, False, ["disabled_in_market_only"], [], {}), None
-    required = {"observation_date", "release_timestamp", "effective_trade_date", "asset", "metric", "value", "source", "is_proxy"}
-    frame = load_optional_csv(cfg.data_directory / "valuation_pit.csv", required, logger)
+        return (
+            ModuleResult(
+                "valuation",
+                blank,
+                pd.Series(0.0, index=calendar),
+                pd.DataFrame(index=calendar),
+                {},
+                False,
+                ["disabled_in_market_only"],
+                [],
+                {},
+            ),
+            None,
+        )
+
+    required = {
+        "observation_date",
+        "release_timestamp",
+        "effective_trade_date",
+        "asset",
+        "metric",
+        "value",
+        "source",
+        "is_proxy",
+    }
+
+    frame = load_optional_csv(
+        cfg.data_directory
+        / "valuation_pit.csv",
+        required,
+        logger,
+    )
+
     if frame.empty:
         if cfg.data_mode == "strict_pit":
-            raise RuntimeError("strict_pit requires valuation_pit.csv")
-        return ModuleResult("valuation", blank, pd.Series(0.0, index=calendar), pd.DataFrame(index=calendar), {}, False, ["valuation_pit.csv"], [], {}), None
+            raise RuntimeError(
+                "strict_pit requires valuation_pit.csv"
+            )
+
+        return (
+            ModuleResult(
+                "valuation",
+                blank,
+                pd.Series(0.0, index=calendar),
+                pd.DataFrame(index=calendar),
+                {},
+                False,
+                ["valuation_pit.csv"],
+                [],
+                {},
+            ),
+            None,
+        )
+
     directions = {
         "trailing_pe": False,
         "fcf_yield": True,
@@ -649,24 +747,192 @@ def calculate_valuation(calendar: pd.DatetimeIndex, cfg: Config, logger: logging
         "earnings_yield": 0.25,
         "erp": 0.20,
     }
-    comps, raw, proxies = {}, {}, []
+
+    signal_date = pd.Timestamp(
+        calendar.max()
+    )
+
+    decision_date = (
+        next_nyse_session_after(
+            signal_date
+        )
+    )
+
+    # Valuation 可能從 decision_date 才生效，
+    # 所以暫時將 decision_date 加入對齊日曆。
+    valuation_calendar = (
+        calendar.union(
+            pd.DatetimeIndex(
+                [decision_date]
+            )
+        )
+        .sort_values()
+    )
+
+    components: Dict[str, pd.Series] = {}
+    raw: Dict[str, pd.Series] = {}
+    proxies: List[bool] = []
+
     for metric, high_good in directions.items():
-        x = frame[frame["metric"].astype(str).str.lower() == metric]
-        if x.empty:
+        metric_rows = frame[
+            frame["metric"]
+            .astype(str)
+            .str.lower()
+            .eq(metric)
+        ].copy()
+
+        if metric_rows.empty:
             continue
-        score_event = event_metric_score(frame, metric, high_good, "quarterly")
-        raw_event = x.sort_values(["effective_trade_date", "release_timestamp"]).groupby("effective_trade_date")["value"].last().dropna()
-        proxy = bool(x["is_proxy"].fillna(False).any())
+
+        score_event = event_metric_score(
+            frame,
+            metric,
+            high_good,
+            "quarterly",
+        )
+
+        raw_event = (
+            metric_rows
+            .sort_values(
+                [
+                    "effective_trade_date",
+                    "release_timestamp",
+                ]
+            )
+            .groupby(
+                "effective_trade_date"
+            )["value"]
+            .last()
+            .dropna()
+        )
+
+        proxy = bool(
+            metric_rows["is_proxy"]
+            .fillna(False)
+            .any()
+        )
+
         proxies.append(proxy)
-        comps[metric] = align_event_series(score_event, calendar, cfg.max_staleness_days["quarterly_fundamental"], f"valuation:{metric}", proxy).value
-        raw[metric] = align_event_series(raw_event, calendar, cfg.max_staleness_days["quarterly_fundamental"], f"valuation_raw:{metric}", proxy).value
-    if not comps:
-        return ModuleResult("valuation", blank, pd.Series(0.0, index=calendar), pd.DataFrame(index=calendar), {}, False, ["usable_valuation_metrics"], [], {}), None
-    comp_frame = pd.DataFrame(comps, index=calendar)
-    weights = {k: base_weights[k] for k in comp_frame.columns}
-    score, coverage = weighted_frame(comp_frame, weights)
-    earnings = raw.get("forward_earnings_yield", raw.get("earnings_yield"))
-    return ModuleResult("valuation", score, coverage, comp_frame, weights, any(proxies), [k for k in base_weights if k not in comp_frame], [], raw), earnings
+
+        aligned_score = align_event_series(
+            score_event,
+            valuation_calendar,
+            cfg.max_staleness_days[
+                "quarterly_fundamental"
+            ],
+            f"valuation:{metric}",
+            proxy,
+        ).value
+
+        aligned_raw = align_event_series(
+            raw_event,
+            valuation_calendar,
+            cfg.max_staleness_days[
+                "quarterly_fundamental"
+            ],
+            f"valuation_raw:{metric}",
+            proxy,
+        ).value
+
+        # live_public 報告是：
+        # 用 signal_date 的收盤資料，
+        # 做 decision_date 的交易決策。
+        #
+        # 因此 decision_date 已生效的估值，
+        # 可以放入最新 signal_date 報告，
+        # 但只限最新一筆，不能回填整段歷史。
+        if (
+            cfg.data_mode == "live_public"
+            and decision_date > signal_date
+        ):
+            decision_score = (
+                aligned_score.get(
+                    decision_date
+                )
+            )
+
+            decision_raw = (
+                aligned_raw.get(
+                    decision_date
+                )
+            )
+
+            if pd.notna(decision_score):
+                aligned_score.loc[
+                    signal_date
+                ] = decision_score
+
+            if pd.notna(decision_raw):
+                aligned_raw.loc[
+                    signal_date
+                ] = decision_raw
+
+        components[metric] = (
+            aligned_score.reindex(
+                calendar
+            )
+        )
+
+        raw[metric] = (
+            aligned_raw.reindex(
+                calendar
+            )
+        )
+
+    if not components:
+        return (
+            ModuleResult(
+                "valuation",
+                blank,
+                pd.Series(0.0, index=calendar),
+                pd.DataFrame(index=calendar),
+                {},
+                False,
+                ["usable_valuation_metrics"],
+                [],
+                {},
+            ),
+            None,
+        )
+
+    component_frame = pd.DataFrame(
+        components,
+        index=calendar,
+    )
+
+    weights = {
+        key: base_weights[key]
+        for key in component_frame.columns
+    }
+
+    score, coverage = weighted_frame(
+        component_frame,
+        weights,
+    )
+
+    earnings_yield = raw.get(
+        "earnings_yield"
+    )
+
+    return (
+        ModuleResult(
+            "valuation",
+            score,
+            coverage,
+            component_frame,
+            weights,
+            any(proxies),
+            [
+                key
+                for key in base_weights
+                if key
+                not in component_frame
+            ],
+            [],
+            raw,
+        ),
+        earnings_yield,
+    )
 
 
 def calculate_ai_cycle(calendar: pd.DatetimeIndex, cfg: Config, logger: logging.Logger) -> ModuleResult:
