@@ -39,6 +39,7 @@ jobs:
     env:
       INVESTMENT_OS_DATA_MODE: live_public
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
 
     steps:
       # ======================================================
@@ -159,6 +160,28 @@ jobs:
           fi
 
           echo "FRED_API_KEY is configured."
+
+      # ======================================================
+      # 7. 收集免費 SEC Valuation 資料
+      # ======================================================
+      - name: Collect free SEC valuation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m py_compile collectors/collect_free_data.py
+
+          python collectors/collect_free_data.py
+
+          if [ ! -s "data/valuation_pit.csv" ]; then
+            echo "::error::data/valuation_pit.csv was not generated."
+            exit 1
+          fi
+
+          echo "Latest valuation rows:"
+          tail -n 5 data/valuation_pit.csv
+
+      
 
       # ======================================================
       # 7. 驗證原始檔案
