@@ -556,6 +556,55 @@ jobs:
           if coverage is not None and coverage < 0.60:
               assert target_margin == 0
 
+          # --------------------------------------------------
+          # Carry 單位合理性驗證
+          # --------------------------------------------------
+          modifiers = payload.get(
+              "modifiers",
+              {},
+          )
+
+          spread = modifiers.get(
+              "expected_return_spread_pct_points"
+          )
+
+          carry_score = scores.get(
+              "Carry_Score"
+          )
+
+          if spread is not None:
+              if not isinstance(
+                  spread,
+                  (int, float),
+              ):
+                  raise AssertionError(
+                      "expected_return_spread_pct_points "
+                      f"must be numeric or null: {spread}"
+                  )
+
+              if abs(spread) > 30:
+                  raise AssertionError(
+                      "Expected return spread has a likely "
+                      f"unit conversion error: {spread}"
+                  )
+
+          if carry_score is not None:
+              if not 0 <= carry_score <= 100:
+                  raise AssertionError(
+                      "Carry_Score out of range: "
+                      f"{carry_score}"
+                  )
+
+          print("Carry validation passed.")
+          print(
+              "Expected return spread:",
+              spread,
+          )
+          print(
+              "Carry Score:",
+              carry_score,
+          )
+
           print("JSON and CSV validation passed.")
           print("Signal date:", payload["signal_date"])
           print("Scores:", payload["scores"])
