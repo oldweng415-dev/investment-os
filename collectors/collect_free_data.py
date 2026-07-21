@@ -115,19 +115,84 @@ def utc_now() -> pd.Timestamp:
     return pd.Timestamp.now(tz="UTC")
 
 
-def next_nyse_session(timestamp: pd.Timestamp) -> str:
-    ts = pd.Timestamp(timestamp)
-    if ts.tzinfo is None:
-        ts = ts.tz_localize("UTC")
-    local_date = ts.tz_convert("America/New_York").date()
-    nyse = mcal.get_calendar("NYSE")
-    schedule = nyse.schedule(
-        start_date=(pd.Timestamp(local_date) + pd.Timedelta(days=1)).date(),
-        end_date=(pd.Timestamp(local_date) + pd.Timedelta(days=14)).date(),
+def resolve_effective_trade_date(
+    fetched_at: pd.Timestamp,
+) -> str:
+    """
+    決定資料可從哪個 NYSE 交易日使用。
+
+    規則：
+    - 美東交易日 09:30 前抓到：
+      當日可以用
+    - 09:30 後抓到：
+      下一個 NYSE 交易日才可以用
+    - 週末或休市日：
+      下一個 NYSE 交易日才可以用
+    """
+
+    timestamp = pd.Timestamp(
+        fetched_at
     )
-    if schedule.empty:
-        raise RuntimeError("Unable to resolve the next NYSE session.")
-    return pd.Timestamp(schedule.index[0]).date().isoformat()
+
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize(
+            "UTC"
+        )
+    else:
+        timestamp = timestamp.tz_convert(
+            "UTC"
+        )
+
+    eastern_time = timestamp.tz_convert(
+        "America/New_York"
+    )
+
+    local_date = pd.Timestamp(
+        eastern_time.date()
+    )
+
+    nyse = mcal.get_calendar("NYSE")
+
+    schedule = nyse.schedule(
+        start_date=(
+            local_date
+            - pd.Timedelta(days=1)
+        ).date(),
+        end_date=(
+            local_date
+            + pd.Timedelta(days=14)
+        ).date(),
+    )
+
+    # 今天是交易日，而且資料在開盤前已取得
+    if local_date in schedule.index:
+        market_open = pd.Timestamp(
+            schedule.loc[
+                local_date,
+                "market_open",
+            ]
+        )
+
+        if timestamp <= market_open:
+            return local_date.date().isoformat()
+
+    # 否則使用下一個尚未開盤的交易日
+    future_sessions = schedule[
+        schedule["market_open"] > timestamp
+    ]
+
+    if future_sessions.empty:
+        raise RuntimeError(
+            "Unable to resolve effective NYSE trade date."
+        )
+
+    return (
+        pd.Timestamp(
+            future_sessions.index[0]
+        )
+        .date()
+        .isoformat()
+    )
 
 
 def logistic_score(
@@ -307,7 +372,11 @@ def collect_sec_valuation() -> None:
     LOGGER.info("Collector started; cwd=%s; output=%s", Path.cwd(), OUTPUT_FILE)
     validate_environment()
     fetched_at = utc_now()
-    effective_trade_date = next_nyse_session(fetched_at)
+    effective_trade_date = (
+    resolve_effective_trade_date(
+        fetched_at
+    )
+)
 
     total_market_cap = 0.0
     total_net_income = 0.0
