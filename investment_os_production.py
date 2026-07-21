@@ -1079,21 +1079,74 @@ def normalize_yield(series: pd.Series) -> pd.Series:
     return s * 100 if pd.notna(med) and med <= 1 else s
 
 
-def calculate_margin_score(modules: Mapping[str, ModuleResult], risk: pd.Series,
-                           earnings_yield: Optional[pd.Series], real_10y: pd.Series,
-                           overall_coverage: pd.Series, cfg: Config) -> Tuple[pd.Series, pd.Series, Optional[pd.Series], Optional[pd.Series]]:
-    base, coverage = combine_modules(modules, cfg.margin_base_weights)
-    carry = spread = None
+def calculate_margin_score(
+    modules: Mapping[str, ModuleResult],
+    risk: pd.Series,
+    earnings_yield: Optional[pd.Series],
+    real_10y: pd.Series,
+    overall_coverage: pd.Series,
+    cfg: Config,
+) -> Tuple[
+    pd.Series,
+    pd.Series,
+    Optional[pd.Series],
+    Optional[pd.Series],
+]:
+    base, coverage = combine_modules(
+        modules,
+        cfg.margin_base_weights,
+    )
+
+    carry = None
+    spread = None
+
     if earnings_yield is not None:
-        spread = normalize_yield(earnings_yield) - normalize_yield(real_10y) - cfg.annual_borrow_rate * 100
-        carry = logistic_score(spread, 0, 2, True)
-        score = .85 * base + .15 * carry
+        spread = (
+            normalize_yield(earnings_yield)
+            - normalize_yield(real_10y)
+            - cfg.annual_borrow_rate * 100
+        )
+
+        carry = logistic_score(
+            spread,
+            0,
+            2,
+            True,
+        )
+
+        blended_score = (
+            0.85 * base
+            + 0.15 * carry
+        )
+
+        score = blended_score.where(
+            carry.notna(),
+            base,
+        )
     else:
         score = base
-    score = score.where(risk <= 70, np.minimum(score, 40))
-    score = score.where(modules["liquidity"].score >= 30, np.minimum(score, 35))
-    score = score.where(overall_coverage >= .60, np.minimum(score, 40))
-    return score.clip(0, 100), coverage, carry, spread
+
+    score = score.where(
+        risk <= 70,
+        np.minimum(score, 40),
+    )
+
+    score = score.where(
+        modules["liquidity"].score >= 30,
+        np.minimum(score, 35),
+    )
+
+    score = score.where(
+        overall_coverage >= 0.60,
+        np.minimum(score, 40),
+    )
+
+    return (
+        score.clip(0, 100),
+        coverage,
+        carry,
+        spread,
+    )   
 
 
 def linear_map(x: float, a: float, b: float, c: float, d: float) -> float:
