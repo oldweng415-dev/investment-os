@@ -181,7 +181,28 @@ jobs:
           echo "Latest valuation rows:"
           tail -n 5 data/valuation_pit.csv
 
-      
+      # ======================================================
+      # 8. 保存免費 Valuation PIT 歷史
+      # ======================================================
+      - name: Commit collected valuation data
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add data/valuation_pit.csv
+
+          if git diff --cached --quiet; then
+            echo "No valuation data changes."
+          else
+            git commit \
+              -m "Update free SEC valuation data [skip ci]"
+
+            git push origin HEAD:main
+          fi
 
       # ======================================================
       # 7. 驗證原始檔案
