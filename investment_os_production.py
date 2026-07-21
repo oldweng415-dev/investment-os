@@ -1211,51 +1211,352 @@ def calculate_macro(calendar: pd.DatetimeIndex, events: Dict[str, pd.Series], al
     return ModuleResult("macro", score, coverage, frame, cfg.macro_weights, True, missing, stale, raw)
 
 
-def calculate_liquidity(calendar: pd.DatetimeIndex, events: Dict[str, pd.Series], aligned: Dict[str, AlignedSeries], cfg: Config) -> ModuleResult:
-    comps, raw, missing, stale = {}, {}, [], []
-    walcl, tga, rrp = (events.get(x, pd.Series(dtype=float)).dropna() for x in ("walcl_bn", "tga_bn", "rrp_bn"))
-    if not walcl.empty and not tga.empty and not rrp.empty:
-        idx = walcl.index
-        nfl = walcl - tga.reindex(idx, method="ffill", limit=3) - rrp.reindex(idx, method="ffill", limit=10)
-        ch13, ch26 = nfl.diff(13), nfl.diff(26)
-        pct = rolling_percentile(winsorize_series(ch13, "weekly"), "weekly")
-        comps["nfl_13w_change"] = align_event_series(pct.dropna(), calendar, cfg.max_staleness_days["weekly_macro"], "nfl_pct", True).value
-        for name, s in (("net_fed_liquidity_bn", nfl), ("nfl_13w_change_bn", ch13), ("nfl_26w_change_bn", ch26), ("nfl_13w_percentile", pct)):
-            raw[name] = align_event_series(s.dropna(), calendar, cfg.max_staleness_days["weekly_macro"], name, True).value
+def calculate_liquidity(
+    calendar: pd.DatetimeIndex,
+    events: Dict[str, pd.Series],
+    aligned: Dict[str, AlignedSeries],
+    cfg: Config,
+) -> ModuleResult:
+    components: Dict[str, pd.Series] = {}
+    raw: Dict[str, pd.Series] = {}
+    missing: List[str] = []
+    stale: List[str] = []
+
+    def aligned_value(
+        alias: str,
+    ) -> pd.Series:
+        item = aligned.get(alias)
+
+        if item is None:
+            return pd.Series(
+                np.nan,
+                index=calendar,
+                dtype=float,
+            )
+
+        return (
+            pd.to_numeric(
+                item.value,
+                errors="coerce",
+            )
+            .reindex(calendar)
+        )
+
+    # 三個 NFL 組成項全部對齊至同一個市場交易日日曆
+    walcl_daily = aligned_value(
+        "walcl_bn"
+    )
+
+    tga_daily = aligned_value(
+        "tga_bn"
+    )
+
+    rrp_daily = aligned_value(
+        "rrp_bn"
+    )
+
+    raw["walcl_bn"] = walcl_daily
+    raw["tga_bn"] = tga_daily
+    raw["rrp_bn"] = rrp_daily
+
+    nfl_inputs_available = (
+        walcl_daily.notna().any()
+        and tga_daily.notna().any()
+        and rrp_daily.notna().any()
+    )
+
+    if nfl_inputs_available:
+        # 每一個日期都使用同一日期已知的
+        # WALCL、TGA、RRP
+        net_fed_liquidity = (
+            walcl_daily
+            - tga_daily
+            - rrp_daily
+        )
+
+        # 13 週約 65 個交易日
+        nfl_change_13w = (
+            net_fed_liquidity.diff(65)
+        )
+
+        # 26 週約 130 個交易日
+        nfl_change_26w = (
+            net_fed_liquidity.diff(130)
+        )
+
+        nfl_percentile = (
+            rolling_percentile(
+                winsorize_series(
+                    nfl_change_13w,
+                    frequency="daily",
+                ),
+                frequency="daily",
+            )
+        )
+
+        components[
+            "nfl_13w_change"
+        ] = nfl_percentile
+
+        raw[
+            "net_fed_liquidity_bn"
+        ] = net_fed_liquidity
+
+        raw[
+            "nfl_13w_change_bn"
+        ] = nfl_change_13w
+
+        raw[
+            "nfl_26w_change_bn"
+        ] = nfl_change_26w
+
+        raw[
+            "nfl_13w_percentile"
+        ] = nfl_percentile
+
+        # 方便驗證公式是否一致
+        raw[
+            "nfl_formula_check_bn"
+        ] = (
+            net_fed_liquidity
+            - (
+                walcl_daily
+                - tga_daily
+                - rrp_daily
+            )
+        )
     else:
-        for alias, sid in (("walcl_bn", "WALCL"), ("tga_bn", "WTREGEN"), ("rrp_bn", "RRPONTSYD")):
-            if events.get(alias, pd.Series(dtype=float)).empty:
-                missing.append(sid)
-    reserves = events.get("reserves_bn", pd.Series(dtype=float)).dropna()
+        if walcl_daily.dropna().empty:
+            missing.append("WALCL")
+
+        if tga_daily.dropna().empty:
+            missing.append("WTREGEN")
+
+        if rrp_daily.dropna().empty:
+            missing.append("RRPONTSYD")
+
+    # --------------------------------------------------------
+    # Reserve balances
+    # --------------------------------------------------------
+    reserves = (
+        events.get(
+            "reserves_bn",
+            pd.Series(dtype=float),
+        )
+        .dropna()
+    )
+
     if not reserves.empty:
-        change = reserves.diff(13)
-        sc = rolling_percentile(winsorize_series(change, "weekly"), "weekly")
-        comps["reserve_balances"] = align_event_series(sc.dropna(), calendar, cfg.max_staleness_days["weekly_macro"], "reserves").value
-        raw["reserve_balances_bn"] = align_event_series(reserves, calendar, cfg.max_staleness_days["weekly_macro"], "reserves_raw").value
+        reserve_change_13w = (
+            reserves.diff(13)
+        )
+
+        reserve_score = (
+            rolling_percentile(
+                winsorize_series(
+                    reserve_change_13w,
+                    frequency="weekly",
+                ),
+                frequency="weekly",
+            )
+        )
+
+        components[
+            "reserve_balances"
+        ] = align_event_series(
+            reserve_score.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "weekly_macro"
+            ],
+            "reserves",
+        ).value
+
+        raw[
+            "reserve_balances_bn"
+        ] = aligned_value(
+            "reserves_bn"
+        )
     else:
         missing.append("WRESBAL")
-    if not rrp.empty:
-        sc = inverse_percentile_score(rolling_percentile(winsorize_series(rrp.diff(65), "daily"), "daily"))
-        comps["rrp_inverse"] = align_event_series(sc.dropna(), calendar, cfg.max_staleness_days["daily_market_indicator"], "rrp_inverse", True).value
-        raw["rrp_bn"] = aligned["rrp_bn"].value
-    if not tga.empty:
-        sc = inverse_percentile_score(rolling_percentile(winsorize_series(tga.diff(13), "weekly"), "weekly"))
-        comps["tga_inverse"] = align_event_series(sc.dropna(), calendar, cfg.max_staleness_days["weekly_macro"], "tga_inverse", True).value
-        raw["tga_bn"] = aligned["tga_bn"].value
-    m2 = events.get("real_m2_bn", pd.Series(dtype=float)).dropna()
-    if not m2.empty:
-        yoy = m2.pct_change(12) * 100
-        sc = rolling_percentile(winsorize_series(yoy, "monthly"), "monthly")
-        comps["real_m2"] = align_event_series(sc.dropna(), calendar, cfg.max_staleness_days["monthly_macro"], "real_m2").value
-        raw["real_m2_yoy"] = align_event_series(yoy.dropna(), calendar, cfg.max_staleness_days["monthly_macro"], "real_m2_raw").value
+
+    # --------------------------------------------------------
+    # RRP inverse score
+    # 使用真正每日 RRP 變化
+    # --------------------------------------------------------
+    rrp_events = (
+        events.get(
+            "rrp_bn",
+            pd.Series(dtype=float),
+        )
+        .dropna()
+    )
+
+    if not rrp_events.empty:
+        rrp_change_13w = (
+            rrp_events.diff(65)
+        )
+
+        rrp_score = (
+            inverse_percentile_score(
+                rolling_percentile(
+                    winsorize_series(
+                        rrp_change_13w,
+                        frequency="daily",
+                    ),
+                    frequency="daily",
+                )
+            )
+        )
+
+        components[
+            "rrp_inverse"
+        ] = align_event_series(
+            rrp_score.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "daily_market_indicator"
+            ],
+            "rrp_inverse",
+            True,
+        ).value
+    elif "RRPONTSYD" not in missing:
+        missing.append("RRPONTSYD")
+
+    # --------------------------------------------------------
+    # TGA inverse score
+    # TGA 仍屬週資料
+    # --------------------------------------------------------
+    tga_events = (
+        events.get(
+            "tga_bn",
+            pd.Series(dtype=float),
+        )
+        .dropna()
+    )
+
+    if not tga_events.empty:
+        tga_change_13w = (
+            tga_events.diff(13)
+        )
+
+        tga_score = (
+            inverse_percentile_score(
+                rolling_percentile(
+                    winsorize_series(
+                        tga_change_13w,
+                        frequency="weekly",
+                    ),
+                    frequency="weekly",
+                )
+            )
+        )
+
+        components[
+            "tga_inverse"
+        ] = align_event_series(
+            tga_score.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "weekly_macro"
+            ],
+            "tga_inverse",
+            True,
+        ).value
+    elif "WTREGEN" not in missing:
+        missing.append("WTREGEN")
+
+    # --------------------------------------------------------
+    # Real M2
+    # --------------------------------------------------------
+    real_m2 = (
+        events.get(
+            "real_m2_bn",
+            pd.Series(dtype=float),
+        )
+        .dropna()
+    )
+
+    if not real_m2.empty:
+        real_m2_yoy = (
+            real_m2.pct_change(12)
+            * 100
+        )
+
+        real_m2_score = (
+            rolling_percentile(
+                winsorize_series(
+                    real_m2_yoy,
+                    frequency="monthly",
+                ),
+                frequency="monthly",
+            )
+        )
+
+        components[
+            "real_m2"
+        ] = align_event_series(
+            real_m2_score.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "monthly_macro"
+            ],
+            "real_m2",
+        ).value
+
+        raw[
+            "real_m2_yoy"
+        ] = align_event_series(
+            real_m2_yoy.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "monthly_macro"
+            ],
+            "real_m2_raw",
+        ).value
     else:
         missing.append("M2REAL")
-    for alias, sid in (("walcl_bn", "WALCL"), ("tga_bn", "WTREGEN"), ("rrp_bn", "RRPONTSYD"), ("reserves_bn", "WRESBAL"), ("real_m2_bn", "M2REAL")):
-        if alias in aligned and bool(aligned[alias].stale.iloc[-1]):
-            stale.append(sid)
-    frame = pd.DataFrame(comps, index=calendar)
-    score, coverage = weighted_frame(frame, cfg.liquidity_weights)
-    return ModuleResult("liquidity", score, coverage, frame, cfg.liquidity_weights, True, missing, stale, raw)
+
+    # --------------------------------------------------------
+    # Staleness
+    # --------------------------------------------------------
+    for alias, series_id in (
+        ("walcl_bn", "WALCL"),
+        ("tga_bn", "WTREGEN"),
+        ("rrp_bn", "RRPONTSYD"),
+        ("reserves_bn", "WRESBAL"),
+        ("real_m2_bn", "M2REAL"),
+    ):
+        item = aligned.get(alias)
+
+        if (
+            item is not None
+            and len(item.stale) > 0
+            and bool(item.stale.iloc[-1])
+        ):
+            stale.append(series_id)
+
+    component_frame = pd.DataFrame(
+        components,
+        index=calendar,
+    )
+
+    score, coverage = weighted_frame(
+        component_frame,
+        cfg.liquidity_weights,
+    )
+
+    return ModuleResult(
+        "liquidity",
+        score,
+        coverage,
+        component_frame,
+        cfg.liquidity_weights,
+        True,
+        sorted(set(missing)),
+        sorted(set(stale)),
+        raw,
+    )
 
 
 def calculate_positioning(close: pd.DataFrame, ext_scores: Dict[str, pd.Series], ext_raw: Dict[str, pd.Series], proxies: Dict[str, bool], cfg: Config) -> ModuleResult:
