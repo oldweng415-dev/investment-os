@@ -1,14 +1,14 @@
 {
   "signal_date": "2026-07-20",
   "decision_date": "2026-07-21",
-  "generated_at": "2026-07-21T11:37:20.164881+00:00",
+  "generated_at": "2026-07-21T12:24:16.103008+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
     "Buy_Score": 53.96,
     "Risk_Score": 41.96,
-    "Margin_Score": 45.74,
-    "Carry_Score": 0.0
+    "Margin_Score": 48.12,
+    "Carry_Score": 15.89
   },
   "modules": {
     "Market_Regime": 75.77,
@@ -19,7 +19,7 @@
     "Positioning": 62.74
   },
   "allocation": {
-    "Target_Margin_Pct": 0.2,
+    "Target_Margin_Pct": 1.0,
     "Target_Cash_Min_Pct": 15,
     "Target_Cash_Max_Pct": 25
   },
@@ -30,7 +30,7 @@
     ],
     "strike_recommendation_available": false
   },
-  "action": "僅限核心 ETF 小量分批；目標融資 0.2%，現金 15%–25%。",
+  "action": "僅限核心 ETF 小量分批；目標融資 1.0%，現金 15%–25%。",
   "effective_module_weights": {
     "buy": {
       "market_regime": 0.294118,
@@ -179,7 +179,7 @@
   "modifiers": {
     "panic_bonus": 0.0,
     "euphoria_penalty": 0.0,
-    "expected_return_spread_pct_points": -232.0234
+    "expected_return_spread_pct_points": -3.3335
   },
   "upcoming_events": [],
   "raw_indicators": {
