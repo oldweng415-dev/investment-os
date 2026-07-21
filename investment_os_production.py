@@ -1668,18 +1668,42 @@ def calculate_margin_score(
     spread = None
 
     if earnings_yield is not None:
-        spread = (
-            normalize_yield(earnings_yield)
-            - normalize_yield(real_10y)
-            - cfg.annual_borrow_rate * 100
+    # earnings_yield 與 FRED DFII10
+    # 都已經是百分點，例如 2.98、2.31，
+    # 不可再透過 normalize_yield() 乘以 100。
+    earnings = (
+        pd.to_numeric(
+            earnings_yield,
+            errors="coerce",
         )
+        .reindex(base.index)
+    )
 
-        carry = logistic_score(
-            spread,
-            0,
-            2,
-            True,
+    real_yield = (
+        pd.to_numeric(
+            real_10y,
+            errors="coerce",
         )
+        .reindex(base.index)
+    )
+
+    borrow_rate_pct = (
+        cfg.annual_borrow_rate
+        * 100
+    )
+
+    spread = (
+        earnings
+        - real_yield
+        - borrow_rate_pct
+    )
+
+    carry = logistic_score(
+        spread,
+        midpoint=0,
+        scale=2,
+        increasing=True,
+    )
 
         blended_score = (
             0.85 * base
