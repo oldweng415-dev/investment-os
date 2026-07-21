@@ -257,6 +257,143 @@ jobs:
         run: |
           set -euo pipefail
           python investment_os_production.py
+      #=======================================================
+      - name: Validate score and date alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          import pandas as pd
+
+          with open(
+              "output/latest_signals.json",
+              "r",
+              encoding="utf-8",
+          ) as handle:
+              payload = json.load(handle)
+
+          # 1. Margin Score 不可因 Carry NaN 而消失
+          margin_score = payload[
+              "scores"
+          ]["Margin_Score"]
+
+          if margin_score is None:
+              raise AssertionError(
+                  "Margin_Score is still null."
+              )
+
+          # 2. decision_date 必須晚於 signal_date
+          signal_date = pd.Timestamp(
+              payload["signal_date"]
+          )
+
+          decision_date = pd.Timestamp(
+              payload["decision_date"]
+          )
+
+          if decision_date <= signal_date:
+              raise AssertionError(
+                  "decision_date must be after signal_date."
+              )
+
+          # 3. 若 Valuation available，四項 raw 不可全為 null
+          valuation_available = (
+              payload[
+                  "modules"
+              ]["Valuation"]
+              is not None
+          )
+
+          valuation_raw_keys = [
+              "valuation.trailing_pe",
+              "valuation.fcf_yield",
+              "valuation.earnings_yield",
+              "valuation.erp",
+          ]
+
+          valuation_values = [
+              payload[
+                  "raw_indicators"
+              ].get(key)
+              for key in valuation_raw_keys
+          ]
+
+          if (
+              valuation_available
+              and all(
+                  value is None
+                  for value in valuation_values
+              )
+          ):
+              raise AssertionError(
+                  "Valuation is available but raw values are null."
+              )
+
+          # 4. NFL 必須使用同一日期的三個組成
+          raw = payload["raw_indicators"]
+
+          walcl = raw.get(
+              "liquidity.walcl_bn"
+          )
+          tga = raw.get(
+              "liquidity.tga_bn"
+          )
+          rrp = raw.get(
+              "liquidity.rrp_bn"
+          )
+          nfl = raw.get(
+              "liquidity.net_fed_liquidity_bn"
+          )
+
+          if None not in (
+              walcl,
+              tga,
+              rrp,
+              nfl,
+          ):
+              expected_nfl = (
+                  walcl
+                  - tga
+                  - rrp
+              )
+
+              difference = abs(
+                  nfl
+                  - expected_nfl
+              )
+
+              if difference > 0.001:
+                  raise AssertionError(
+                      "NFL formula mismatch: "
+                      f"actual={nfl}, "
+                      f"expected={expected_nfl}, "
+                      f"difference={difference}"
+                  )
+
+          print(
+              "Score and date alignment validation passed."
+          )
+          print(
+              "Signal date:",
+              payload["signal_date"],
+          )
+          print(
+              "Decision date:",
+              payload["decision_date"],
+          )
+          print(
+              "Margin Score:",
+              margin_score,
+          )
+          print(
+              "Valuation:",
+              payload["modules"]["Valuation"],
+          )
+          PY
 
       # ======================================================
       # 9. 驗證輸出
