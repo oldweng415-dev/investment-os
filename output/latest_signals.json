@@ -1,12 +1,12 @@
 {
   "signal_date": "2026-07-20",
-  "generated_at": "2026-07-21T10:59:59.196660+00:00",
+  "generated_at": "2026-07-21T11:18:14.197725+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
     "Buy_Score": 63.24,
     "Risk_Score": 50.11,
-    "Margin_Score": null,
+    "Margin_Score": 61.23,
     "Carry_Score": null
   },
   "modules": {
@@ -18,9 +18,9 @@
     "Positioning": 62.74
   },
   "allocation": {
-    "Target_Margin_Pct": 0.0,
-    "Target_Cash_Min_Pct": 30,
-    "Target_Cash_Max_Pct": 40
+    "Target_Margin_Pct": 5.0,
+    "Target_Cash_Min_Pct": 10,
+    "Target_Cash_Max_Pct": 15
   },
   "covered_call": {
     "status": "HOLD_EXISTING_CC",
@@ -29,7 +29,7 @@
     ],
     "strike_recommendation_available": false
   },
-  "action": "禁止新增融資；建議現金 30%–40%，保留核心持股與風險彈性。",
+  "action": "僅限核心 ETF 小量分批；目標融資 5.0%，現金 10%–15%。",
   "effective_module_weights": {
     "buy": {
       "market_regime": 0.384615,
@@ -168,7 +168,8 @@
     "Low_Data_Coverage"
   ],
   "decision_reasons": [
-    "Latest_critical_scores_incomplete"
+    "Normal_accumulation_zone",
+    "Margin_capped_without_valuation_or_carry"
   ],
   "modifiers": {
     "panic_bonus": 0.0,
