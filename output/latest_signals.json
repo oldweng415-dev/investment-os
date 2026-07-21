@@ -1,13 +1,13 @@
 {
   "signal_date": "2026-07-20",
   "decision_date": "2026-07-21",
-  "generated_at": "2026-07-21T11:31:38.195480+00:00",
+  "generated_at": "2026-07-21T11:33:31.491254+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
-    "Buy_Score": 53.94,
-    "Risk_Score": 41.99,
-    "Margin_Score": 45.71,
+    "Buy_Score": 53.96,
+    "Risk_Score": 41.96,
+    "Margin_Score": 45.74,
     "Carry_Score": 0.0
   },
   "modules": {
@@ -15,7 +15,7 @@
     "AI_Cycle": null,
     "Valuation": 30.13,
     "Macro": 43.82,
-    "Liquidity": 54.65,
+    "Liquidity": 54.74,
     "Positioning": 62.74
   },
   "allocation": {
@@ -115,7 +115,7 @@
       "last_updated": "2026-07-20"
     },
     "liquidity": {
-      "score": 54.65,
+      "score": 54.74,
       "available": true,
       "coverage": 1.0,
       "is_proxy": true,
@@ -197,13 +197,15 @@
     "macro.sahm_style_gap": 0.0667,
     "macro.claims_4w_26w_ratio": 1.0039,
     "macro.yield_curve_stress": 0.0,
-    "liquidity.net_fed_liquidity_bn": 5986.685,
-    "liquidity.nfl_13w_change_bn": 32.501,
-    "liquidity.nfl_26w_change_bn": 186.163,
-    "liquidity.nfl_13w_percentile": 59.7115,
-    "liquidity.reserve_balances_bn": 3142.721,
-    "liquidity.rrp_bn": 0.1,
+    "liquidity.walcl_bn": 6743.028,
     "liquidity.tga_bn": 756.218,
+    "liquidity.rrp_bn": 0.1,
+    "liquidity.net_fed_liquidity_bn": 5986.71,
+    "liquidity.nfl_13w_change_bn": 41.521,
+    "liquidity.nfl_26w_change_bn": 212.339,
+    "liquidity.nfl_13w_percentile": 59.9802,
+    "liquidity.nfl_formula_check_bn": 0.0,
+    "liquidity.reserve_balances_bn": 3142.721,
     "liquidity.real_m2_yoy": 1.5268,
     "positioning.vix": 18.65,
     "positioning.vix_percentile": 54.5437,
