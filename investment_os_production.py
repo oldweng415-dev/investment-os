@@ -1572,9 +1572,15 @@ def build_output(cfg: Config, date: pd.Timestamp, modules: Mapping[str, ModuleRe
     raw = {f"{m}.{k}": latest(s, date) for m, result in modules.items() for k, s in result.raw.items()}
     critical_ok = scores["market_regime"] is not None and scores["liquidity"] is not None and not modules["market_regime"].stale_inputs and not modules["liquidity"].stale_inputs and (latest(overall_cov, date) or 0) >= .60
     module_frame = pd.DataFrame({k: v.score for k, v in modules.items()})
+    decision_date = next_nyse_session_after(
+    date
+    )
+
     output = {
-        "signal_date": date.date().isoformat(),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+    "signal_date": date.date().isoformat(),
+    "decision_date": decision_date.date().isoformat(),
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+
         "data_mode": cfg.data_mode,
         "historical_data_is_revised": cfg.data_mode == "live_public",
         "scores": {"Buy_Score": latest(buy, date, 2), "Risk_Score": latest(risk, date, 2),
