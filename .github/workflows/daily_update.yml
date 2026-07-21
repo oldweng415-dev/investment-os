@@ -97,7 +97,8 @@ jobs:
           restore-keys: |
             fred-data-${{ runner.os }}-
 
-            - name: Collect free public PIT data
+      # ======================================================
+      - name: Collect free public PIT data
         shell: bash
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
@@ -115,6 +116,34 @@ jobs:
             -name "*.csv" \
             -print \
             | sort
+
+      # ======================================================
+      - name: Commit collected PIT data
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            data/valuation_pit.csv \
+            data/ai_cycle_pit.csv \
+            data/positioning_pit.csv \
+            data/macro_nowcast_pit.csv \
+            data/events.csv \
+            2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "No PIT data changes."
+          else
+            git commit \
+              -m "Update free public PIT data [skip ci]"
+
+            git push origin HEAD:main
+          fi
+            
 
       # ======================================================
       # 6. 確認 FRED Secret 已傳入
