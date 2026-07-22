@@ -241,6 +241,140 @@ jobs:
                   f"{sorted(missing_metrics)}"
               )
 
+          positioning_path = Path(
+              "data/positioning_pit.csv"
+          )
+
+          if positioning_path.exists():
+              positioning = pd.read_csv(
+                  positioning_path
+              )
+
+              put_call = positioning[
+                  positioning["metric"]
+                  .astype(str)
+                  .str.lower()
+                  .eq("equity_put_call")
+              ].copy()
+
+              if not put_call.empty:
+                  put_call[
+                      "release_timestamp"
+                  ] = pd.to_datetime(
+                      put_call[
+                          "release_timestamp"
+                      ],
+                      errors="coerce",
+                      utc=True,
+                  )
+
+                  put_call = put_call.sort_values(
+                      "release_timestamp"
+                  )
+
+                  latest_put_call = (
+                      put_call.iloc[-1]
+                  )
+
+                  observation_date = pd.Timestamp(
+                      latest_put_call[
+                          "observation_date"
+                      ]
+                  )
+
+                  effective_date = pd.Timestamp(
+                      latest_put_call[
+                          "effective_trade_date"
+                      ]
+                  )
+
+                  age_days = (
+                      effective_date
+                      - observation_date
+                  ).days
+
+                  if not 0 <= age_days <= 10:
+                      raise AssertionError(
+                          "Latest Equity Put/Call row "
+                          "has an invalid date gap: "
+                          f"observation={observation_date.date()}, "
+                          f"effective={effective_date.date()}, "
+                          f"gap={age_days}"
+                      )
+
+          events_path = Path(
+              "data/events.csv"
+          )
+
+          if events_path.exists():
+              events = pd.read_csv(
+                  events_path
+              )
+
+              fomc = events[
+                  events["event_type"]
+                  .astype(str)
+                  .str.lower()
+                  .isin(
+                      [
+                          "fomc",
+                          "fed",
+                      ]
+                  )
+                  & events[
+                      "description"
+                  ]
+                  .astype(str)
+                  .str.contains(
+                      "FOMC",
+                      case=False,
+                      na=False,
+                  )
+              ].copy()
+
+              if not fomc.empty:
+                  fomc[
+                      "event_date"
+                  ] = pd.to_datetime(
+                      fomc[
+                          "event_date"
+                      ],
+                      errors="coerce",
+                  )
+
+                  if fomc[
+                      "event_date"
+                  ].duplicated().any():
+                      raise AssertionError(
+                          "Duplicate FOMC decision "
+                          "dates were generated."
+                      )
+
+                  per_year = (
+                      fomc.dropna(
+                          subset=[
+                              "event_date"
+                          ]
+                      )
+                      .assign(
+                          year=lambda x:
+                              x["event_date"].dt.year
+                      )
+                      .groupby(
+                          "year"
+                      )
+                      .size()
+                  )
+
+                  if (
+                      per_year > 10
+                  ).any():
+                      raise AssertionError(
+                          "Too many FOMC decision "
+                          f"dates in one year: {per_year.to_dict()}"
+                      )
+
+          print("Put/Call and event-date validation passed.")
           print("Free public PIT validation completed.")
           PY
 
