@@ -4,4 +4,4 @@ signal_date,module,score,available,coverage,is_proxy,effective_weights,missing_i
 2026-07-21,valuation,30.07,True,1.0,True,"{""trailing_pe"": 0.3, ""fcf_yield"": 0.25, ""earnings_yield"": 0.25, ""erp"": 0.2}",[],[],2026-07-21
 2026-07-21,macro,48.01,True,0.65,True,"{""employment_gap"": 0.307692, ""initial_claims"": 0.384615, ""yield_curve"": 0.307692}","[""macro_nowcast_pit.csv""]","[""PCEPILFE""]",2026-07-21
 2026-07-21,liquidity,55.93,True,0.9,True,"{""nfl_13w_change"": 0.388889, ""reserve_balances"": 0.277778, ""rrp_inverse"": 0.166667, ""tga_inverse"": 0.166667}",[],"[""M2REAL""]",2026-07-21
-2026-07-21,positioning,62.01,True,0.55,False,"{""vix_percentile"": 0.454545, ""skew"": 0.272727, ""vvix"": 0.272727}","[""cftc_or_flow"", ""equity_put_call""]",[],2026-07-21
+2026-07-21,positioning,73.13,True,0.8,False,"{""vix_percentile"": 0.3125, ""vix_term_structure"": 0.3125, ""skew"": 0.1875, ""vvix"": 0.1875}","[""cftc_or_flow"", ""equity_put_call""]",[],2026-07-21
