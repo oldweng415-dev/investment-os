@@ -1,7 +1,7 @@
 signal_date,module,score,available,coverage,is_proxy,effective_weights,missing_inputs,stale_inputs,last_updated
 2026-07-21,market_regime,76.33,True,0.85,True,"{""spy_trend"": 0.294118, ""qqq_trend"": 0.294118, ""soxx_trend"": 0.235294, ""breadth"": 0.176471}",[],[],2026-07-21
-2026-07-21,ai_cycle,,False,0.0,False,{},"[""ai_cycle_pit.csv""]",[],2026-07-21
+2026-07-21,ai_cycle,98.81,True,0.8,True,"{""nvidia_revenue_yoy_proxy"": 0.4375, ""hyperscaler_capex_yoy"": 0.5625}","[""micron_dc_hbm_score"", ""tsmc_hpc_growth""]",[],2026-07-21
 2026-07-21,valuation,30.07,True,1.0,True,"{""trailing_pe"": 0.3, ""fcf_yield"": 0.25, ""earnings_yield"": 0.25, ""erp"": 0.2}",[],[],2026-07-21
-2026-07-21,macro,48.01,True,0.65,True,"{""employment_gap"": 0.307692, ""initial_claims"": 0.384615, ""yield_curve"": 0.307692}","[""macro_nowcast_pit.csv""]","[""PCEPILFE""]",2026-07-21
+2026-07-21,macro,48.76,True,0.75,True,"{""employment_gap"": 0.266667, ""initial_claims"": 0.333333, ""yield_curve"": 0.266667, ""nowcast_or_pmi"": 0.133333}",[],"[""PCEPILFE""]",2026-07-21
 2026-07-21,liquidity,55.93,True,0.9,True,"{""nfl_13w_change"": 0.388889, ""reserve_balances"": 0.277778, ""rrp_inverse"": 0.166667, ""tga_inverse"": 0.166667}",[],"[""M2REAL""]",2026-07-21
-2026-07-21,positioning,73.13,True,0.8,False,"{""vix_percentile"": 0.3125, ""vix_term_structure"": 0.3125, ""skew"": 0.1875, ""vvix"": 0.1875}","[""cftc_or_flow"", ""equity_put_call""]",[],2026-07-21
+2026-07-21,positioning,69.42,True,0.9,True,"{""vix_percentile"": 0.277778, ""vix_term_structure"": 0.277778, ""skew"": 0.166667, ""vvix"": 0.166667, ""put_call"": 0.111111}","[""cftc_or_flow""]",[],2026-07-21
