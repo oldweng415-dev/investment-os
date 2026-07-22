@@ -2123,6 +2123,41 @@ def determine_target_cash(buy: float, risk: float) -> Tuple[int, int]:
     return 15, 25
 
 
+
+def get_critical_stale_inputs(
+    market_regime: ModuleResult,
+    liquidity: ModuleResult,
+) -> List[str]:
+    """
+    Return only stale inputs that should act as a hard leverage stop.
+
+    Slower secondary indicators such as Real M2 may lower module
+    coverage, but do not by themselves force target margin to zero.
+    """
+
+    critical_market_series = {
+        "BAMLH0A0HYM2",
+    }
+
+    critical_liquidity_series = {
+        "WALCL",
+        "WTREGEN",
+        "RRPONTSYD",
+        "WRESBAL",
+    }
+
+    stale = (
+        critical_market_series.intersection(
+            market_regime.stale_inputs
+        )
+        | critical_liquidity_series.intersection(
+            liquidity.stale_inputs
+        )
+    )
+
+    return sorted(stale)
+
+
 def load_events(
     cfg: Config,
     logger: logging.Logger,
@@ -2183,39 +2218,141 @@ def upcoming_events(
     calendar: pd.DatetimeIndex,
     n: int = 10,
 ) -> List[Dict[str, Any]]:
+    """
+    Return only events important enough to affect leverage or
+    covered-call decisions within the next n NYSE sessions.
+    """
+
     if events.empty:
         return []
 
-    signal_date = pd.Timestamp(date).tz_localize(None)
-    nyse = mcal.get_calendar("NYSE")
+    frame = events.copy()
+
+    event_type = (
+        frame["event_type"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+    description = (
+        frame["description"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+    major_macro_pattern = (
+        r"consumer price index"
+        r"|employment situation"
+        r"|producer price index"
+        r"|employment cost index"
+        r"|personal income and outlays"
+        r"|personal consumption expenditures"
+        r"|gross domestic product"
+    )
+
+    major_mask = (
+        event_type.eq("earnings")
+        | event_type.isin(
+            {
+                "fomc",
+                "fed",
+            }
+        )
+        | (
+            event_type.eq(
+                "macro_release"
+            )
+            & description.str.contains(
+                major_macro_pattern,
+                regex=True,
+                na=False,
+            )
+        )
+    )
+
+    frame = frame.loc[
+        major_mask
+    ].copy()
+
+    if frame.empty:
+        return []
+
+    signal_date = pd.Timestamp(
+        date
+    ).tz_localize(None)
+
+    nyse = mcal.get_calendar(
+        "NYSE"
+    )
+
     schedule = nyse.schedule(
-        start_date=(signal_date + pd.Timedelta(days=1)).date(),
-        end_date=(signal_date + pd.Timedelta(days=45)).date(),
+        start_date=(
+            signal_date
+            + pd.Timedelta(days=1)
+        ).date(),
+        end_date=(
+            signal_date
+            + pd.Timedelta(days=45)
+        ).date(),
     )
 
     if schedule.empty:
         return []
 
-    future_sessions = pd.DatetimeIndex(schedule.index)[:n]
+    future_sessions = pd.DatetimeIndex(
+        schedule.index
+    )[:n]
+
     if future_sessions.empty:
         return []
 
-    last_date = pd.Timestamp(future_sessions[-1]).tz_localize(None)
+    last_date = pd.Timestamp(
+        future_sessions[-1]
+    ).tz_localize(None)
+
     event_dates = pd.to_datetime(
-        events["event_date"],
+        frame["event_date"],
         errors="coerce",
     )
 
     mask = (
-        (event_dates > signal_date)
-        & (event_dates <= last_date)
+        event_dates.gt(
+            signal_date
+        )
+        & event_dates.le(
+            last_date
+        )
     )
 
     return (
-        events.loc[mask]
-        .assign(event_date=event_dates.loc[mask])
-        .sort_values("event_date")
-        .to_dict("records")
+        frame.loc[mask]
+        .assign(
+            event_date=event_dates.loc[
+                mask
+            ]
+        )
+        .drop_duplicates(
+            subset=[
+                "event_date",
+                "asset",
+                "event_type",
+                "description",
+            ],
+            keep="last",
+        )
+        .sort_values(
+            [
+                "event_date",
+                "asset",
+            ]
+        )
+        .to_dict(
+            "records"
+        )
     )
 
 
@@ -2269,7 +2406,17 @@ def build_output(cfg: Config, date: pd.Timestamp, modules: Mapping[str, ModuleRe
     proxy = sorted(k for k, v in modules.items() if v.is_proxy)
     unavailable = sorted(k for k, v in scores.items() if v is None)
     raw = {f"{m}.{k}": latest(s, date) for m, result in modules.items() for k, s in result.raw.items()}
-    critical_ok = scores["market_regime"] is not None and scores["liquidity"] is not None and not modules["market_regime"].stale_inputs and not modules["liquidity"].stale_inputs and (latest(overall_cov, date) or 0) >= .60
+    critical_stale_series = get_critical_stale_inputs(
+        modules["market_regime"],
+        modules["liquidity"],
+    )
+
+    critical_ok = (
+        scores["market_regime"] is not None
+        and scores["liquidity"] is not None
+        and not critical_stale_series
+        and (latest(overall_cov, date) or 0) >= 0.60
+    )
     module_frame = pd.DataFrame({k: v.score for k, v in modules.items()})
     decision_date = next_nyse_session_after(
     date
@@ -2298,7 +2445,9 @@ def build_output(cfg: Config, date: pd.Timestamp, modules: Mapping[str, ModuleRe
         "module_data_quality": {k: v.latest_quality(date) for k, v in modules.items()},
         "data_quality": {"coverage_ratio": latest(overall_cov, date, 4), "buy_coverage": latest(buy_cov, date, 4),
                          "risk_coverage": latest(risk_cov, date, 4), "margin_coverage": latest(margin_cov, date, 4),
-                         "critical_data_ok": critical_ok, "stale_series": stale, "missing_series": missing,
+                         "critical_data_ok": critical_ok,
+                         "critical_stale_series": critical_stale_series,
+                         "stale_series": stale, "missing_series": missing,
                          "proxy_modules": proxy, "unavailable_modules": unavailable,
                          "event_check_available": event_check},
         "risk_overrides": [k for k, s in overrides.items() if bool(s.get(date, False))],
@@ -2423,10 +2572,40 @@ def main() -> None:
         target, allocation_reasons, cash = 0.0, ["Latest_critical_scores_incomplete"], (30, 40)
     else:
         b, r, m, l, cov = values
-        critical_stale = bool(market_regime.stale_inputs or liquidity.stale_inputs)
-        target, allocation_reasons = determine_target_margin(b, r, m, l, cov,
-            latest(market_regime.score, date) is not None, latest(liquidity.score, date) is not None,
-            critical_stale, latest(valuation.score, date) is not None, latest(carry, date) is not None, cfg)
+        critical_stale_series = get_critical_stale_inputs(
+            market_regime,
+            liquidity,
+        )
+
+        critical_stale = bool(
+            critical_stale_series
+        )
+
+        target, allocation_reasons = determine_target_margin(
+            b,
+            r,
+            m,
+            l,
+            cov,
+            latest(
+                market_regime.score,
+                date,
+            ) is not None,
+            latest(
+                liquidity.score,
+                date,
+            ) is not None,
+            critical_stale,
+            latest(
+                valuation.score,
+                date,
+            ) is not None,
+            latest(
+                carry,
+                date,
+            ) is not None,
+            cfg,
+        )
         cash = determine_target_cash(b, r)
 
     event_frame, event_check = load_events(cfg, logger)
@@ -2434,7 +2613,23 @@ def main() -> None:
     iv30, rv20 = ext_raw.get("iv30"), ext_raw.get("rv20")
     iv_available = iv30 is not None and rv20 is not None
     iv_positive = None if not iv_available else ((latest(iv30, date) or -np.inf) > (latest(rv20, date) or np.inf))
-    critical_ok = latest(market_regime.score, date) is not None and latest(liquidity.score, date) is not None and not market_regime.stale_inputs and not liquidity.stale_inputs and (latest(overall_cov, date) or 0) >= .60
+    critical_stale_series = get_critical_stale_inputs(
+        market_regime,
+        liquidity,
+    )
+
+    critical_ok = (
+        latest(
+            market_regime.score,
+            date,
+        ) is not None
+        and latest(
+            liquidity.score,
+            date,
+        ) is not None
+        and not critical_stale_series
+        and (latest(overall_cov, date) or 0) >= 0.60
+    )
     cc, cc_reasons = determine_cc(values[0] or 0, values[1] if values[1] is not None else 100,
         values[4] or 0, latest(bonus, date) or 0, latest(ai_cycle.score, date), latest(valuation.score, date),
         future_events, event_check, critical_ok, iv_available, iv_positive)
