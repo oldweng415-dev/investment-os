@@ -1846,150 +1846,120 @@ def collect_bls_events() -> list[dict[str, Any]]:
 
 def collect_bea_events() -> list[dict[str, Any]]:
     """
-    Parse the official BEA full-year release schedule.
+    Collect major BEA event dates from BEA's official machine-readable
+    release-date JSON feed.
 
-    Both the current and next year are requested explicitly, which
-    avoids relying on a page table whose date column omits the year.
+    This intentionally avoids pandas.read_html(), because the public
+    schedule page may be rendered without a conventional HTML table.
+
+    Only the two BEA releases used by the Investment OS event-quality
+    check are retained:
+    - Gross Domestic Product
+    - Personal Income and Outlays
     """
 
-    events: list[dict[str, Any]] = []
-    current_year = pd.Timestamp.today().year
-
-    month_pattern = (
-        r"January|February|March|April|May|June|"
-        r"July|August|September|October|November|December"
+    response = SESSION.get(
+        "https://apps.bea.gov/"
+        "API/signup/release_dates.json",
+        timeout=(10, 60),
     )
 
-    for year in (
-        current_year,
-        current_year + 1,
-    ):
-        response = SESSION.get(
-            "https://www.bea.gov/"
-            f"news/schedule/full/{year}",
-            timeout=(10, 60),
+    if not response.ok:
+        raise RuntimeError(
+            "BEA release-date JSON request failed: "
+            f"status={response.status_code}; "
+            f"body={response.text[:1000]}"
         )
 
-        response.raise_for_status()
+    payload = response.json()
 
-        tables = pd.read_html(
-            StringIO(
-                response.text
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            "BEA release-date JSON returned "
+            "an unexpected top-level structure"
+        )
+
+    required_releases = {
+        "Gross Domestic Product",
+        "Personal Income and Outlays",
+    }
+
+    events: list[dict[str, Any]] = []
+
+    for release_name in required_releases:
+        release_payload = payload.get(
+            release_name
+        )
+
+        if not isinstance(
+            release_payload,
+            dict,
+        ):
+            LOGGER.warning(
+                "BEA JSON does not contain %s",
+                release_name,
             )
+            continue
+
+        release_dates = release_payload.get(
+            "release_dates",
+            [],
         )
 
-        for table in tables:
-            if table.empty:
+        if not isinstance(
+            release_dates,
+            list,
+        ):
+            LOGGER.warning(
+                "BEA JSON release_dates is not "
+                "a list for %s",
+                release_name,
+            )
+            continue
+
+        for raw_timestamp in release_dates:
+            timestamp = pd.to_datetime(
+                raw_timestamp,
+                errors="coerce",
+                utc=True,
+            )
+
+            if pd.isna(timestamp):
+                LOGGER.warning(
+                    "Skipping invalid BEA date "
+                    "%r for %s",
+                    raw_timestamp,
+                    release_name,
+                )
                 continue
 
-            if isinstance(
-                table.columns,
-                pd.MultiIndex,
-            ):
-                table.columns = [
-                    " ".join(
-                        str(part).strip()
-                        for part in column
-                        if str(part).strip()
-                        and str(part).lower()
-                        != "nan"
-                    )
-                    for column in table.columns
-                ]
-            else:
-                table.columns = [
-                    str(column).strip()
-                    for column in table.columns
-                ]
-
-            for _, row in table.iterrows():
-                cells = [
-                    str(value).strip()
-                    for value in row.tolist()
-                    if pd.notna(value)
-                    and str(value).strip()
-                    and str(value).strip().lower()
-                    != "nan"
-                ]
-
-                if not cells:
-                    continue
-
-                row_text = " | ".join(
-                    cells
+            eastern_timestamp = (
+                pd.Timestamp(timestamp)
+                .tz_convert(
+                    "America/New_York"
                 )
+            )
 
-                date_match = re.search(
-                    rf"\b({month_pattern})\s+"
-                    r"(\d{1,2})\b",
-                    row_text,
-                    flags=re.IGNORECASE,
-                )
-
-                if not date_match:
-                    continue
-
-                event_date = pd.to_datetime(
-                    f"{date_match.group(1)} "
-                    f"{date_match.group(2)} "
-                    f"{year}",
-                    errors="coerce",
-                )
-
-                if pd.isna(
-                    event_date
-                ):
-                    continue
-
-                candidates = [
-                    cell
-                    for cell in cells
-                    if not re.search(
-                        rf"\b({month_pattern})\s+"
-                        r"\d{1,2}\b",
-                        cell,
-                        flags=re.IGNORECASE,
-                    )
-                    and cell.lower()
-                    not in {
-                        "news",
-                        "data",
-                    }
-                    and not re.fullmatch(
-                        r"\d{1,2}:\d{2}\s*"
-                        r"(?:am|pm)?",
-                        cell,
-                        flags=re.IGNORECASE,
-                    )
-                ]
-
-                description = (
-                    max(
-                        candidates,
-                        key=len,
-                    )
-                    if candidates
-                    else "BEA economic release"
-                )
-
-                events.append(
-                    {
-                        "event_date":
-                            event_date
-                            .date()
-                            .isoformat(),
-                        "asset":
-                            "MARKET",
-                        "event_type":
-                            "macro_release",
-                        "description":
-                            description,
-                        "source":
-                            "BEA_RELEASE_SCHEDULE",
-                        "is_proxy":
-                            False,
-                    }
-                )
+            events.append(
+                {
+                    "event_date":
+                        eastern_timestamp
+                        .date()
+                        .isoformat(),
+                    "asset":
+                        "MARKET",
+                    "event_type":
+                        "macro_release",
+                    "description":
+                        release_name,
+                    # Keep the existing source label so the
+                    # production engine remains compatible.
+                    "source":
+                        "BEA_RELEASE_SCHEDULE",
+                    "is_proxy":
+                        False,
+                }
+            )
 
     output = (
         pd.DataFrame(
@@ -2004,19 +1974,33 @@ def collect_bea_events() -> list[dict[str, Any]]:
             keep="last",
         )
         .sort_values(
-            "event_date"
+            [
+                "event_date",
+                "description",
+            ]
         )
     )
 
     if output.empty:
         raise RuntimeError(
-            "BEA schedule parser returned "
-            "no usable events"
+            "BEA machine-readable release feed "
+            "returned no usable GDP or PCE events"
         )
+
+    LOGGER.info(
+        "Collected %s BEA GDP/PCE event rows; "
+        "feed_last_updated=%s",
+        len(output),
+        payload.get(
+            "file_last_updated",
+            "unknown",
+        ),
+    )
 
     return output.to_dict(
         "records"
     )
+
 
 def collect_fomc_events() -> list[dict[str, Any]]:
     """
@@ -2619,12 +2603,74 @@ def collect_ai_cycle() -> None:
     )
 
 
+def normalize_yfinance_iv_percent(
+    raw_value: float,
+) -> float:
+    """
+    Convert a yfinance implied-volatility value into percentage points.
+
+    Normal yfinance format:
+        0.1963 -> 19.63
+
+    Some yfinance/parser versions may expose an additional 1/100
+    scaling:
+        0.001963 -> 19.63
+
+    Because this collector is specifically for an equity ETF options
+    proxy, a final result below 3 percentage points is treated as a
+    likely unit-scaling error and multiplied by 100 once more.
+    """
+
+    value = float(
+        raw_value
+    )
+
+    if (
+        not np.isfinite(value)
+        or value <= 0
+    ):
+        raise ValueError(
+            "Implied volatility must be "
+            f"positive and finite: {raw_value}"
+        )
+
+    percent_value = (
+        value
+        * 100.0
+    )
+
+    if (
+        0
+        < percent_value
+        < 3.0
+    ):
+        percent_value *= 100.0
+
+    if not (
+        3.0
+        <= percent_value
+        < 500.0
+    ):
+        raise ValueError(
+            "Normalized implied volatility "
+            "is outside plausible bounds: "
+            f"raw={raw_value}, "
+            f"percent={percent_value}"
+        )
+
+    return float(
+        percent_value
+    )
+
+
 def repair_legacy_iv30_units() -> None:
     """
-    Repair historical IV30 rows that were written as decimal fractions.
+    Repair historical IV30 values saved with decimal or double-decimal
+    scaling.
 
-    Example:
-        0.1963 -> 19.63
+    Examples:
+        0.1963   -> 19.63
+        0.001963 -> 19.63
     """
 
     if not POSITIONING_FILE.exists():
@@ -2663,27 +2709,45 @@ def repair_legacy_iv30_units() -> None:
         errors="coerce",
     )
 
-    legacy_mask = (
+    target_mask = (
         metric.eq("iv30")
-        & source.eq(
-            "YFINANCE_QQQ_OPTIONS_PROXY"
+        & source.str.startswith(
+            "YFINANCE_"
         )
         & values.gt(0)
-        & values.lt(2)
+        & values.lt(3)
     )
 
-    if not legacy_mask.any():
+    if not target_mask.any():
         return
 
-    frame.loc[
-        legacy_mask,
-        "value",
-    ] = (
-        values.loc[
-            legacy_mask
-        ]
-        * 100.0
-    )
+    repaired_count = 0
+
+    for row_index in frame.index[
+        target_mask
+    ]:
+        raw_value = pd.to_numeric(
+            frame.at[
+                row_index,
+                "value",
+            ],
+            errors="coerce",
+        )
+
+        if pd.isna(raw_value):
+            continue
+
+        frame.at[
+            row_index,
+            "value",
+        ] = normalize_yfinance_iv_percent(
+            float(raw_value)
+        )
+
+        repaired_count += 1
+
+    if repaired_count == 0:
+        return
 
     frame.to_csv(
         POSITIONING_FILE,
@@ -2692,9 +2756,7 @@ def repair_legacy_iv30_units() -> None:
 
     LOGGER.info(
         "Repaired %s legacy IV30 rows",
-        int(
-            legacy_mask.sum()
-        ),
+        repaired_count,
     )
 
 
@@ -2901,12 +2963,13 @@ def collect_options_metrics() -> None:
         ]
 
         iv_values.append(
-            float(
-                row[
-                    "impliedVolatility"
-                ]
+            normalize_yfinance_iv_percent(
+                float(
+                    row[
+                        "impliedVolatility"
+                    ]
+                )
             )
-            * 100.0
         )
 
         atm_strikes.append(
@@ -2928,8 +2991,16 @@ def collect_options_metrics() -> None:
         )
     )
 
+    # Final guard immediately before persistence.
+    # The saved IV30 must always be percentage points,
+    # such as 19.63 rather than 0.1963.
+    if iv30 < 3.0:
+        iv30 = normalize_yfinance_iv_percent(
+            iv30
+        )
+
     if not (
-        0 < iv30 < 500
+        3.0 <= iv30 < 500
         and 0 < rv20 < 500
     ):
         raise RuntimeError(
