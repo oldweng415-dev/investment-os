@@ -1,7 +1,7 @@
 signal_date,module,score,available,coverage,is_proxy,effective_weights,missing_inputs,stale_inputs,last_updated
-2026-07-21,market_regime,76.33,True,0.85,True,"{""spy_trend"": 0.294118, ""qqq_trend"": 0.294118, ""soxx_trend"": 0.235294, ""breadth"": 0.176471}",[],[],2026-07-21
-2026-07-21,ai_cycle,98.81,True,0.8,True,"{""nvidia_revenue_yoy_proxy"": 0.4375, ""hyperscaler_capex_yoy"": 0.5625}","[""micron_dc_hbm_score"", ""tsmc_hpc_growth""]",[],2026-07-21
-2026-07-21,valuation,30.07,True,1.0,True,"{""trailing_pe"": 0.3, ""fcf_yield"": 0.25, ""earnings_yield"": 0.25, ""erp"": 0.2}",[],[],2026-07-21
-2026-07-21,macro,48.76,True,0.75,True,"{""employment_gap"": 0.266667, ""initial_claims"": 0.333333, ""yield_curve"": 0.266667, ""nowcast_or_pmi"": 0.133333}",[],"[""PCEPILFE""]",2026-07-21
-2026-07-21,liquidity,55.93,True,0.9,True,"{""nfl_13w_change"": 0.388889, ""reserve_balances"": 0.277778, ""rrp_inverse"": 0.166667, ""tga_inverse"": 0.166667}",[],"[""M2REAL""]",2026-07-21
-2026-07-21,positioning,69.42,True,0.9,True,"{""vix_percentile"": 0.277778, ""vix_term_structure"": 0.277778, ""skew"": 0.166667, ""vvix"": 0.166667, ""put_call"": 0.111111}","[""cftc_or_flow""]",[],2026-07-21
+2026-07-21,market_regime,78.77,True,1.0,True,"{""spy_trend"": 0.25, ""qqq_trend"": 0.25, ""soxx_trend"": 0.2, ""breadth"": 0.15, ""credit"": 0.15}",[],[],2026-07-21
+2026-07-21,ai_cycle,91.79,True,0.8,True,"{""nvidia_revenue_yoy_proxy"": 0.4375, ""hyperscaler_capex_yoy"": 0.5625}","[""micron_dc_hbm_score"", ""micron_dc_hbm_score_score"", ""tsmc_hpc_growth"", ""tsmc_hpc_growth_score""]",[],2026-07-21
+2026-07-21,valuation,33.63,True,1.0,True,"{""trailing_pe"": 0.3, ""fcf_yield"": 0.25, ""earnings_yield"": 0.25, ""erp"": 0.2}","[""forward_estimates_unavailable""]",[],2026-07-21
+2026-07-21,macro,44.8,True,1.0,True,"{""core_pce"": 0.25, ""employment_gap"": 0.2, ""initial_claims"": 0.25, ""yield_curve"": 0.2, ""nowcast_or_pmi"": 0.1}",[],[],2026-07-21
+2026-07-21,liquidity,54.72,True,1.0,True,"{""nfl_13w_change"": 0.35, ""reserve_balances"": 0.25, ""rrp_inverse"": 0.15, ""tga_inverse"": 0.15, ""real_m2"": 0.1}",[],[],2026-07-21
+2026-07-21,positioning,69.42,True,0.9,True,"{""vix_percentile"": 0.277778, ""vix_term_structure"": 0.277778, ""skew"": 0.166667, ""vvix"": 0.166667, ""put_call"": 0.111111}","[""cftc_or_flow"", ""cftc_or_flow_score""]",[],2026-07-21
