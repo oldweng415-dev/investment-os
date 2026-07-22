@@ -387,6 +387,101 @@ def flatten_yfinance(raw: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         frame.columns = [str(c) for c in frame.columns]
     return out
 
+def load_cboe_vix3m(
+    logger: logging.Logger,
+) -> pd.Series:
+    """
+    從 Cboe 官方 CSV 取得 VIX3M 歷史收盤值。
+    """
+
+    url = (
+        "https://cdn.cboe.com/api/global/"
+        "us_indices/daily_prices/"
+        "VIX3M_History.csv"
+    )
+
+    try:
+        session = requests_session()
+
+        response = session.get(
+            url,
+            timeout=(10, 60),
+        )
+
+        response.raise_for_status()
+
+        frame = pd.read_csv(
+            StringIO(response.text)
+        )
+
+        frame.columns = [
+            str(column).strip().upper()
+            for column in frame.columns
+        ]
+
+        required = {
+            "DATE",
+            "CLOSE",
+        }
+
+        missing = required - set(
+            frame.columns
+        )
+
+        if missing:
+            raise ValueError(
+                "VIX3M CSV missing columns: "
+                f"{sorted(missing)}"
+            )
+
+        frame["DATE"] = pd.to_datetime(
+            frame["DATE"],
+            errors="coerce",
+        )
+
+        frame["CLOSE"] = pd.to_numeric(
+            frame["CLOSE"],
+            errors="coerce",
+        )
+
+        series = (
+            frame
+            .dropna(
+                subset=[
+                    "DATE",
+                    "CLOSE",
+                ]
+            )
+            .drop_duplicates(
+                "DATE",
+                keep="last",
+            )
+            .set_index(
+                "DATE"
+            )["CLOSE"]
+            .sort_index()
+        )
+
+        series.index = (
+            series.index
+            .tz_localize(None)
+        )
+
+        series.name = "^VIX3M"
+
+        return series
+
+    except Exception as exc:
+        logger.warning(
+            "Cboe VIX3M fallback failed: %s",
+            exc,
+        )
+
+        return pd.Series(
+            dtype=float,
+            name="^VIX3M",
+        )
+
 
 def load_yfinance_data(cfg: Config, logger: logging.Logger) -> Dict[str, pd.DataFrame]:
     cfg.cache_directory.mkdir(parents=True, exist_ok=True)
@@ -396,6 +491,39 @@ def load_yfinance_data(cfg: Config, logger: logging.Logger) -> Dict[str, pd.Data
         data = flatten_yfinance(raw)
         if "Close" not in data:
             raise RuntimeError("No Close data returned")
+        vix3m_official = load_cboe_vix3m(
+            logger
+        )
+
+        if not vix3m_official.empty:
+            close_frame = data["Close"].copy()
+
+            existing_vix3m = (
+                close_frame["^VIX3M"]
+                if "^VIX3M" in close_frame.columns
+                else pd.Series(
+                    np.nan,
+                    index=close_frame.index,
+                )
+            )
+
+            official_aligned = (
+                vix3m_official
+                .reindex(
+                    close_frame.index
+                )
+            )
+
+            # 優先採用 Cboe 官方值；
+            # 官方缺值時才保留 Yahoo 值。
+            close_frame["^VIX3M"] = (
+                official_aligned
+                .combine_first(
+                    existing_vix3m
+                )
+            )
+
+            data["Close"] = close_frame
         for field, frame in data.items():
             frame.to_csv(cfg.cache_directory / f"market_{field.replace(' ', '_').lower()}.csv")
         return data
