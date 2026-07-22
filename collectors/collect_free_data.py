@@ -599,93 +599,221 @@ def collect_gdpnow() -> None:
 # 3. Cboe Equity Put/Call
 # ============================================================
 
-def parse_cboe_equity_pc_csv(text: str) -> pd.DataFrame:
-    lines = text.replace("\r\n", "\n").split("\n")
-    header_index = None
-    for index, line in enumerate(lines):
-        upper = line.upper()
-        if "DATE" in upper and ("P/C" in upper or "RATIO" in upper):
-            header_index = index
-            break
-    if header_index is None:
-        raise RuntimeError("Unable to locate Cboe equity put/call CSV header")
+def parse_cboe_daily_equity_put_call(html: str) -> float:
+    """
+    Parse the current Equity Put/Call Ratio from Cboe's official
+    Daily Market Statistics page.
 
-    frame = pd.read_csv(StringIO("\n".join(lines[header_index:])))
-    frame.columns = [re.sub(r"\s+", " ", str(column).strip().upper()) for column in frame.columns]
+    The older equitypc.csv file is an archive and may stop years in
+    the past, so it must not be treated as the latest daily value.
+    """
 
-    date_column = next((column for column in frame.columns if "DATE" in column), None)
-    ratio_column = next(
-        (
-            column
-            for column in frame.columns
-            if "P/C" in column or ("PUT" in column and "CALL" in column and "RATIO" in column)
-        ),
-        None,
+    try:
+        tables = pd.read_html(StringIO(html))
+    except ValueError:
+        tables = []
+
+    for table in tables:
+        if table.empty:
+            continue
+
+        for _, row in table.iterrows():
+            cells = [
+                str(value).strip()
+                for value in row.tolist()
+                if pd.notna(value)
+            ]
+
+            row_text = " ".join(cells)
+            normalized = re.sub(
+                r"\s+",
+                " ",
+                row_text,
+            ).upper()
+
+            if "EQUITY PUT/CALL RATIO" not in normalized:
+                continue
+
+            numeric_values: list[float] = []
+
+            for cell in cells:
+                match = re.fullmatch(
+                    r"\s*([0-9]+(?:\.[0-9]+)?)\s*",
+                    cell,
+                )
+
+                if match:
+                    numeric_values.append(
+                        float(match.group(1))
+                    )
+
+            if numeric_values:
+                return numeric_values[-1]
+
+    text = BeautifulSoup(
+        html,
+        "html.parser",
+    ).get_text(
+        " ",
+        strip=True,
     )
 
-    if date_column is None:
-        raise RuntimeError("Cboe equity put/call CSV has no date column")
-
-    frame["observation_date"] = pd.to_datetime(frame[date_column], errors="coerce")
-
-    if ratio_column is not None:
-        frame["ratio"] = pd.to_numeric(frame[ratio_column], errors="coerce")
-    else:
-        call_column = next(
-            (column for column in frame.columns if "CALL" in column and "VOLUME" in column),
-            None,
-        )
-        put_column = next(
-            (column for column in frame.columns if "PUT" in column and "VOLUME" in column),
-            None,
-        )
-        if call_column is None or put_column is None:
-            raise RuntimeError("Cboe equity put/call CSV has no usable ratio or volume columns")
-        calls = pd.to_numeric(frame[call_column], errors="coerce")
-        puts = pd.to_numeric(frame[put_column], errors="coerce")
-        frame["ratio"] = puts / calls.replace(0, np.nan)
-
-    return frame.dropna(subset=["observation_date", "ratio"]).sort_values(
-        "observation_date"
+    match = re.search(
+        r"EQUITY\s+PUT/CALL\s+RATIO"
+        r"[^0-9]{0,80}"
+        r"([0-9]+(?:\.[0-9]+)?)",
+        text,
+        flags=re.IGNORECASE,
     )
+
+    if not match:
+        raise RuntimeError(
+            "Unable to parse the current Cboe "
+            "Equity Put/Call Ratio"
+        )
+
+    return float(match.group(1))
+
+
+def remove_invalid_put_call_rows() -> None:
+    """
+    Remove rows where the effective date is implausibly far from the
+    observation date. This cleans the prior archive-row bug, such as
+    a 2019 observation incorrectly activated in 2026.
+    """
+
+    if not POSITIONING_FILE.exists():
+        return
+
+    frame = pd.read_csv(
+        POSITIONING_FILE
+    )
+
+    required = {
+        "observation_date",
+        "effective_trade_date",
+        "metric",
+    }
+
+    if not required.issubset(
+        frame.columns
+    ):
+        return
+
+    observation = pd.to_datetime(
+        frame["observation_date"],
+        errors="coerce",
+    )
+
+    effective = pd.to_datetime(
+        frame["effective_trade_date"],
+        errors="coerce",
+    )
+
+    age_days = (
+        effective
+        - observation
+    ).dt.days
+
+    is_put_call = (
+        frame["metric"]
+        .astype(str)
+        .str.lower()
+        .eq("equity_put_call")
+    )
+
+    invalid = (
+        is_put_call
+        & (
+            age_days.isna()
+            | age_days.lt(0)
+            | age_days.gt(10)
+        )
+    )
+
+    if invalid.any():
+        LOGGER.warning(
+            "Removing %s invalid Equity Put/Call rows",
+            int(invalid.sum()),
+        )
+
+        frame.loc[~invalid].to_csv(
+            POSITIONING_FILE,
+            index=False,
+        )
 
 
 def collect_cboe_put_call() -> None:
+    fetched_at = utc_now()
+
     response = SESSION.get(
-        "https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/equitypc.csv",
+        "https://www.cboe.com/markets/"
+        "us/options/market-statistics/daily/",
         timeout=(10, 60),
     )
+
     response.raise_for_status()
 
-    frame = parse_cboe_equity_pc_csv(response.text)
-    if frame.empty:
-        raise RuntimeError("Cboe equity put/call CSV returned no usable rows")
+    value = parse_cboe_daily_equity_put_call(
+        response.text
+    )
 
-    latest = frame.iloc[-1]
-    fetched_at = utc_now()
-    value = float(latest["ratio"])
-    score = logistic_score(value, midpoint=0.70, scale=0.12, higher_is_better=True)
+    if not np.isfinite(value) or not 0 < value < 10:
+        raise RuntimeError(
+            "Cboe Equity Put/Call Ratio is outside "
+            f"a plausible range: {value}"
+        )
+
+    observation_date = (
+        latest_completed_nyse_session(
+            fetched_at
+        )
+    )
+
+    score = logistic_score(
+        value,
+        midpoint=0.70,
+        scale=0.12,
+        higher_is_better=True,
+    )
 
     rows = pd.DataFrame(
         [
             {
-                "observation_date": latest["observation_date"].date().isoformat(),
-                "release_timestamp": fetched_at.isoformat(),
-                "effective_trade_date": resolve_effective_trade_date(fetched_at),
-                "metric": "equity_put_call",
-                "value": round(value, 4),
-                "score": round(score, 4),
-                "source": "CBOE_EQUITY_PC_CSV",
-                "is_proxy": True,
-                "fetched_at": fetched_at.isoformat(),
+                "observation_date":
+                    observation_date,
+                "release_timestamp":
+                    fetched_at.isoformat(),
+                "effective_trade_date":
+                    resolve_effective_trade_date(
+                        fetched_at
+                    ),
+                "metric":
+                    "equity_put_call",
+                "value":
+                    round(value, 4),
+                "score":
+                    round(score, 4),
+                "source":
+                    "CBOE_DAILY_MARKET_STATISTICS",
+                "is_proxy":
+                    True,
+                "fetched_at":
+                    fetched_at.isoformat(),
             }
         ]
     )
 
+    remove_invalid_put_call_rows()
+
     append_pit_csv(
         POSITIONING_FILE,
         rows,
-        ("observation_date", "metric", "source"),
+        (
+            "effective_trade_date",
+            "metric",
+            "source",
+        ),
     )
 
 
@@ -919,13 +1047,43 @@ def collect_bea_events() -> list[dict[str, Any]]:
 
 
 def collect_fomc_events() -> list[dict[str, Any]]:
+    """
+    Collect one policy-decision date per scheduled FOMC meeting.
+
+    The decision date is the final day of each meeting range.
+    Section boundaries are determined by every FOMC-year heading.
+    """
+
     response = SESSION.get(
-        "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+        "https://www.federalreserve.gov/"
+        "monetarypolicy/fomccalendars.htm",
         timeout=(10, 60),
     )
+
     response.raise_for_status()
-    text = BeautifulSoup(response.text, "html.parser").get_text("\n", strip=True)
-    current_year = pd.Timestamp.today().year
+
+    text = BeautifulSoup(
+        response.text,
+        "html.parser",
+    ).get_text(
+        "\n",
+        strip=True,
+    )
+
+    heading_pattern = re.compile(
+        r"\b(?P<year>20\d{2})\s+FOMC\s+Meetings\b",
+        flags=re.IGNORECASE,
+    )
+
+    heading_matches = list(
+        heading_pattern.finditer(text)
+    )
+
+    if not heading_matches:
+        raise RuntimeError(
+            "Unable to locate FOMC year sections"
+        )
+
     month_numbers = {
         "January": 1,
         "February": 2,
@@ -940,46 +1098,116 @@ def collect_fomc_events() -> list[dict[str, Any]]:
         "November": 11,
         "December": 12,
     }
+
+    current_year = pd.Timestamp.today().year
+    wanted_years = {
+        current_year,
+        current_year + 1,
+    }
+
     events: list[dict[str, Any]] = []
 
-    for year in (current_year, current_year + 1):
-        marker = f"{year} FOMC Meetings"
-        if marker not in text:
-            continue
-        section = text.split(marker, 1)[1]
-        next_marker = f"{year + 1} FOMC Meetings"
-        if next_marker in section:
-            section = section.split(next_marker, 1)[0]
+    for index, heading in enumerate(
+        heading_matches
+    ):
+        year = int(
+            heading.group("year")
+        )
 
-        lines = [line.strip() for line in section.splitlines() if line.strip()]
-        for index, line in enumerate(lines):
-            if line not in month_numbers:
+        if year not in wanted_years:
+            continue
+
+        section_start = heading.end()
+        section_end = (
+            heading_matches[index + 1].start()
+            if index + 1 < len(heading_matches)
+            else len(text)
+        )
+
+        section = text[
+            section_start:section_end
+        ]
+
+        lines = [
+            line.strip()
+            for line in section.splitlines()
+            if line.strip()
+        ]
+
+        for line_index in range(
+            len(lines) - 1
+        ):
+            month_name = lines[line_index]
+
+            if month_name not in month_numbers:
                 continue
-            date_token = None
-            for candidate in lines[index + 1 : index + 5]:
-                if re.fullmatch(r"\d{1,2}(?:-\d{1,2})?\*?", candidate):
-                    date_token = candidate.replace("*", "")
-                    break
-            if date_token is None:
+
+            date_token = (
+                lines[line_index + 1]
+                .replace("*", "")
+                .strip()
+            )
+
+            if not re.fullmatch(
+                r"\d{1,2}(?:-\d{1,2})?",
+                date_token,
+            ):
                 continue
-            end_day = int(date_token.split("-")[-1])
+
+            decision_day = int(
+                date_token.split("-")[-1]
+            )
+
             event_date = pd.Timestamp(
                 year=year,
-                month=month_numbers[line],
-                day=end_day,
+                month=month_numbers[
+                    month_name
+                ],
+                day=decision_day,
             )
+
             events.append(
                 {
-                    "event_date": event_date.date().isoformat(),
-                    "asset": "MARKET",
-                    "event_type": "fed",
-                    "description": "FOMC policy decision",
-                    "source": "FED_FOMC_CALENDAR",
-                    "is_proxy": False,
+                    "event_date":
+                        event_date
+                        .date()
+                        .isoformat(),
+                    "asset":
+                        "MARKET",
+                    "event_type":
+                        "fomc",
+                    "description":
+                        "FOMC policy decision",
+                    "source":
+                        "FED_FOMC_CALENDAR",
+                    "is_proxy":
+                        False,
                 }
             )
 
-    return events
+    output = (
+        pd.DataFrame(events)
+        .drop_duplicates(
+            subset=[
+                "event_date",
+                "asset",
+                "event_type",
+                "description",
+                "source",
+            ],
+            keep="last",
+        )
+        .sort_values("event_date")
+    )
+
+    if output.empty:
+        raise RuntimeError(
+            "No current or next-year FOMC dates were parsed"
+        )
+
+    return output.to_dict(
+        "records"
+    )
 
 
 def extract_earnings_dates(calendar: Any) -> list[pd.Timestamp]:
@@ -1049,11 +1277,36 @@ def collect_events() -> None:
     ].copy()
     frame["event_date"] = frame["event_date"].dt.date.astype(str)
 
-    append_pit_csv(
+    frame = (
+        frame
+        .drop_duplicates(
+            subset=[
+                "event_date",
+                "asset",
+                "event_type",
+                "description",
+                "source",
+            ],
+            keep="last",
+        )
+        .sort_values(
+            [
+                "event_date",
+                "asset",
+                "event_type",
+            ]
+        )
+    )
+
+    frame.to_csv(
         EVENTS_FILE,
-        frame,
-        ("event_date", "asset", "event_type", "description", "source"),
-        ("event_date", "asset", "event_type"),
+        index=False,
+    )
+
+    LOGGER.info(
+        "Saved %s current event rows to %s",
+        len(frame),
+        EVENTS_FILE,
     )
 
 
