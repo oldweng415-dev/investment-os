@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-07-21",
   "decision_date": "2026-07-22",
-  "generated_at": "2026-07-22T04:38:55.324847+00:00",
+  "generated_at": "2026-07-22T05:14:53.332284+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -19,7 +19,7 @@
     "Positioning": 69.42
   },
   "allocation": {
-    "Target_Margin_Pct": 0.0,
+    "Target_Margin_Pct": 2.3,
     "Target_Cash_Min_Pct": 15,
     "Target_Cash_Max_Pct": 25
   },
@@ -27,12 +27,11 @@
     "status": "STOP_NEW_CC",
     "reason": [
       "AI_Cycle_accelerating",
-      "Major_event_within_10_trading_days",
-      "Critical_data_unavailable_or_stale"
+      "Major_event_within_10_trading_days"
     ],
     "strike_recommendation_available": false
   },
-  "action": "禁止新增融資；建議現金 15%–25%，保留核心持股與風險彈性。",
+  "action": "僅限核心 ETF 小量分批；目標融資 2.3%，現金 15%–25%。",
   "effective_module_weights": {
     "buy": {
       "market_regime": 0.25,
@@ -164,7 +163,8 @@
     "buy_coverage": 0.8775,
     "risk_coverage": 0.85,
     "margin_coverage": 0.8875,
-    "critical_data_ok": false,
+    "critical_data_ok": true,
+    "critical_stale_series": [],
     "stale_series": [
       "M2REAL",
       "PCEPILFE"
@@ -187,7 +187,7 @@
   },
   "risk_overrides": [],
   "decision_reasons": [
-    "Critical_data_stale"
+    "Small_ETF_accumulation_zone"
   ],
   "modifiers": {
     "panic_bonus": 0.0,
@@ -204,59 +204,11 @@
       "is_proxy": true
     },
     {
-      "event_date": "2026-07-22T00:00:00",
-      "asset": "MARKET",
-      "event_type": "macro_release",
-      "description": "State Job Openings and Labor Turnover",
-      "source": "BLS_ICS",
-      "is_proxy": false
-    },
-    {
-      "event_date": "2026-07-26T00:00:00",
-      "asset": "MARKET",
-      "event_type": "fed",
-      "description": "FOMC policy decision",
-      "source": "FED_FOMC_CALENDAR",
-      "is_proxy": false
-    },
-    {
-      "event_date": "2026-07-27T00:00:00",
-      "asset": "MARKET",
-      "event_type": "fed",
-      "description": "FOMC policy decision",
-      "source": "FED_FOMC_CALENDAR",
-      "is_proxy": false
-    },
-    {
-      "event_date": "2026-07-28T00:00:00",
-      "asset": "MARKET",
-      "event_type": "fed",
-      "description": "FOMC policy decision",
-      "source": "FED_FOMC_CALENDAR",
-      "is_proxy": false
-    },
-    {
       "event_date": "2026-07-29T00:00:00",
       "asset": "MARKET",
-      "event_type": "fed",
+      "event_type": "fomc",
       "description": "FOMC policy decision",
       "source": "FED_FOMC_CALENDAR",
-      "is_proxy": false
-    },
-    {
-      "event_date": "2026-07-29T00:00:00",
-      "asset": "MARKET",
-      "event_type": "macro_release",
-      "description": "Metropolitan Area Employment and Unemployment (Monthly)",
-      "source": "BLS_ICS",
-      "is_proxy": false
-    },
-    {
-      "event_date": "2026-07-29T00:00:00",
-      "asset": "MARKET",
-      "event_type": "macro_release",
-      "description": "Quarterly Data Series on Business Employment Dynamics",
-      "source": "BLS_ICS",
       "is_proxy": false
     },
     {
@@ -284,34 +236,10 @@
       "is_proxy": true
     },
     {
-      "event_date": "2026-07-30T00:00:00",
-      "asset": "MARKET",
-      "event_type": "fed",
-      "description": "FOMC policy decision",
-      "source": "FED_FOMC_CALENDAR",
-      "is_proxy": false
-    },
-    {
-      "event_date": "2026-07-31T00:00:00",
-      "asset": "MARKET",
-      "event_type": "fed",
-      "description": "FOMC policy decision",
-      "source": "FED_FOMC_CALENDAR",
-      "is_proxy": false
-    },
-    {
       "event_date": "2026-07-31T00:00:00",
       "asset": "MARKET",
       "event_type": "macro_release",
       "description": "Employment Cost Index",
-      "source": "BLS_ICS",
-      "is_proxy": false
-    },
-    {
-      "event_date": "2026-08-04T00:00:00",
-      "asset": "MARKET",
-      "event_type": "macro_release",
-      "description": "Job Openings and Labor Turnover Survey",
       "source": "BLS_ICS",
       "is_proxy": false
     }
