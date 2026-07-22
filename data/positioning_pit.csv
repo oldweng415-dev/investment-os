@@ -1,2 +1,4 @@
-observation_date,release_timestamp,effective_trade_date,metric,value,score,source,is_proxy,fetched_at
-2026-07-21,2026-07-22T05:14:38.731945+00:00,2026-07-22,equity_put_call,0.65,39.7315,CBOE_DAILY_MARKET_STATISTICS,True,2026-07-22T05:14:38.731945+00:00
+observation_date,release_timestamp,effective_trade_date,metric,value,score,source,is_proxy,fetched_at,underlying,option_expiration,days_to_expiry,atm_strike
+2026-07-21,2026-07-22T06:22:34.663356+00:00,2026-07-22,equity_put_call,0.65,39.7315,CBOE_DAILY_MARKET_STATISTICS,True,2026-07-22T06:22:34.663356+00:00,,,,
+2026-07-21,2026-07-22T06:22:36.390482+00:00,2026-07-22,iv30,0.196311,,YFINANCE_QQQ_OPTIONS_PROXY,True,2026-07-22T06:22:36.390482+00:00,QQQ,2026-08-21,30.0,708.5
+2026-07-21,2026-07-22T06:22:36.390482+00:00,2026-07-22,rv20,25.567679,,YFINANCE_QQQ_OPTIONS_PROXY,True,2026-07-22T06:22:36.390482+00:00,QQQ,2026-08-21,30.0,708.5
