@@ -2291,9 +2291,9 @@ TSMC_QUARTERLY_ROOT = (
     "quarterly-results"
 )
 
-MICRON_EVENTS_URL = (
+MICRON_QUARTERLY_RESULTS_URL = (
     "https://investors.micron.com/"
-    "events-and-presentations"
+    "quarterly-results"
 )
 
 MONTH_PATTERN = (
@@ -2426,6 +2426,14 @@ def find_tsmc_presentation(
     year: int,
     quarter: int,
 ) -> Optional[dict[str, Any]]:
+    """
+    Discover one official TSMC quarterly result page.
+
+    The Management Report is used instead of the presentation chart
+    because its PDF text layer explicitly states the HPC revenue share.
+    The quarterly HTML page supplies the actual US-dollar revenue.
+    """
+
     page_url = (
         f"{TSMC_QUARTERLY_ROOT}/"
         f"{year}/q{quarter}"
@@ -2433,6 +2441,11 @@ def find_tsmc_presentation(
 
     response = SESSION.get(
         page_url,
+        headers={
+            "Accept":
+                "text/html,application/xhtml+xml,"
+                "application/xml;q=0.9,*/*;q=0.8",
+        },
         timeout=(10, 60),
     )
 
@@ -2443,6 +2456,8 @@ def find_tsmc_presentation(
         response.text,
         "html.parser",
     )
+
+    management_report_url: Optional[str] = None
 
     for anchor in soup.find_all(
         "a",
@@ -2455,20 +2470,57 @@ def find_tsmc_presentation(
             ).split()
         ).lower()
 
-        if "presentation material" not in label:
+        if "management report" not in label:
             continue
 
-        return {
-            "year": year,
-            "quarter": quarter,
-            "page_url": page_url,
-            "pdf_url": urljoin(
-                page_url,
-                anchor["href"],
-            ),
-        }
+        management_report_url = urljoin(
+            page_url,
+            anchor["href"],
+        )
+        break
 
-    return None
+    if management_report_url is None:
+        return None
+
+    page_text = normalize_document_text(
+        soup.get_text(
+            " ",
+            strip=True,
+        )
+    )
+
+    try:
+        net_revenue_usd_bn = (
+            parse_tsmc_net_revenue_usd_bn(
+                page_text
+            )
+        )
+    except Exception:
+        LOGGER.exception(
+            "Unable to parse TSMC %s Q%s "
+            "net revenue from quarterly page",
+            year,
+            quarter,
+        )
+        return None
+
+    return {
+        "year":
+            year,
+        "quarter":
+            quarter,
+        "page_url":
+            page_url,
+        # Keep pdf_url for compatibility with the downstream function.
+        "pdf_url":
+            management_report_url,
+        "management_report_url":
+            management_report_url,
+        "net_revenue_usd_bn":
+            net_revenue_usd_bn,
+        "document_type":
+            "MANAGEMENT_REPORT",
+    }
 
 
 def discover_latest_tsmc_quarter() -> dict[str, Any]:
@@ -2574,33 +2626,51 @@ def parse_tsmc_net_revenue_usd_bn(
 def parse_tsmc_hpc_share_pct(
     text: str,
 ) -> float:
-    lower_text = text.lower()
-    marker = lower_text.find(
-        "revenue by platform"
-    )
+    """
+    Parse TSMC's HPC share from official Management Report prose.
 
-    if marker < 0:
-        raise RuntimeError(
-            "TSMC Revenue by Platform "
-            "section was not found"
-        )
+    Typical official wording:
+        "By platform, HPC and Smartphone represented 66% and 22%
+         of net revenue respectively."
 
-    segment = text[
-        marker:
-        marker + 3000
-    ]
+    Transcript-style wording is retained as a fallback:
+        "HPC increased ... to account for 66% of our revenue."
+    """
+
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        normalize_document_text(
+            text
+        ),
+    ).strip()
 
     patterns = (
-        r"\bHPC\s*[\r\n ]*"
+        # Management Report wording.
+        r"\bBy platform,\s*HPC"
+        r"(?:\s+and\s+Smartphone)?\s+represented\s+"
         r"([0-9]+(?:\.[0-9]+)?)\s*%",
+
+        # Earnings transcript wording.
+        r"\bHPC\b.{0,220}?"
+        r"\bto account for\s+"
         r"([0-9]+(?:\.[0-9]+)?)\s*%"
-        r"[\r\n ]*\bHPC\b",
+        r"(?:\s+of\s+(?:our\s+)?"
+        r"(?:quarterly\s+|second-quarter\s+|"
+        r"first-quarter\s+|third-quarter\s+|"
+        r"fourth-quarter\s+)?revenue)?",
+
+        # Other possible official wording.
+        r"\bHPC\b.{0,160}?"
+        r"\b(?:represented|accounted for)\s+"
+        r"([0-9]+(?:\.[0-9]+)?)\s*%"
+        r"(?:\s+of\s+net revenue)?",
     )
 
     for pattern in patterns:
         match = re.search(
             pattern,
-            segment,
+            normalized,
             flags=re.IGNORECASE,
         )
 
@@ -2614,31 +2684,117 @@ def parse_tsmc_hpc_share_pct(
         if 5.0 <= value <= 95.0:
             return value
 
+    diagnostic = normalized[:2000]
+
     raise RuntimeError(
         "Unable to parse TSMC HPC share "
-        "from Revenue by Platform chart"
+        "from official Management Report. "
+        f"Document preview={diagnostic!r}"
     )
+
+
+def parse_release_date_after_period(
+    text: str,
+    period_end: pd.Timestamp,
+    fetched_at: pd.Timestamp,
+) -> pd.Timestamp:
+    """
+    Select the earliest official document date after quarter-end.
+
+    This avoids mistaking the quarter-end date for the publication date.
+    If the document date cannot be resolved, fetched_at is used as a
+    conservative first-observed timestamp.
+    """
+
+    matches = re.findall(
+        rf"\b(?:{MONTH_PATTERN})\s+"
+        r"\d{1,2},\s+20\d{2}\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    candidates: list[pd.Timestamp] = []
+
+    fetched_date = (
+        pd.Timestamp(
+            fetched_at
+        )
+        .tz_convert(
+            "UTC"
+        )
+        .tz_localize(
+            None
+        )
+        .normalize()
+    )
+
+    period_end = (
+        pd.Timestamp(
+            period_end
+        )
+        .tz_localize(
+            None
+        )
+        .normalize()
+    )
+
+    for raw_date in matches:
+        parsed = pd.to_datetime(
+            raw_date,
+            errors="coerce",
+        )
+
+        if pd.isna(parsed):
+            continue
+
+        parsed = pd.Timestamp(
+            parsed
+        ).normalize()
+
+        if (
+            parsed > period_end
+            and parsed <= fetched_date
+        ):
+            candidates.append(
+                parsed
+            )
+
+    if candidates:
+        return min(
+            candidates
+        )
+
+    return fetched_date
 
 
 def collect_tsmc_hpc_growth_row(
     fetched_at: pd.Timestamp,
 ) -> dict[str, Any]:
-    presentations = (
+    """
+    Calculate TSMC HPC revenue proxy growth from official sources.
+
+    Current and prior-year same-quarter inputs:
+        quarterly US$ net revenue from TSMC's result page
+        x
+        HPC share from TSMC's Management Report
+    """
+
+    quarters = (
         discover_latest_tsmc_quarter()
     )
 
-    current_meta = presentations[
+    current_meta = quarters[
         "current"
     ]
 
-    previous_meta = presentations[
+    previous_meta = quarters[
         "previous"
     ]
 
     current_text, current_hash = (
         download_pdf_text(
             current_meta[
-                "pdf_url"
+                "management_report_url"
             ]
         )
     )
@@ -2646,21 +2802,21 @@ def collect_tsmc_hpc_growth_row(
     previous_text, previous_hash = (
         download_pdf_text(
             previous_meta[
-                "pdf_url"
+                "management_report_url"
             ]
         )
     )
 
-    current_revenue = (
-        parse_tsmc_net_revenue_usd_bn(
-            current_text
-        )
+    current_revenue = float(
+        current_meta[
+            "net_revenue_usd_bn"
+        ]
     )
 
-    previous_revenue = (
-        parse_tsmc_net_revenue_usd_bn(
-            previous_text
-        )
+    previous_revenue = float(
+        previous_meta[
+            "net_revenue_usd_bn"
+        ]
     )
 
     current_share = (
@@ -2712,10 +2868,31 @@ def collect_tsmc_hpc_growth_row(
             f"plausible bounds: {growth_pct}"
         )
 
-    release_date = parse_document_date(
-        current_text
+    observation_date = (
+        tsmc_quarter_end(
+            int(
+                current_meta[
+                    "year"
+                ]
+            ),
+            int(
+                current_meta[
+                    "quarter"
+                ]
+            ),
+        )
     )
 
+    release_date = (
+        parse_release_date_after_period(
+            current_text,
+            observation_date,
+            fetched_at,
+        )
+    )
+
+    # TSMC earnings are released during the Taiwan afternoon.
+    # 16:00 Taipei is a conservative machine-readable proxy.
     release_timestamp = (
         release_date
         + pd.Timedelta(
@@ -2729,18 +2906,7 @@ def collect_tsmc_hpc_growth_row(
 
     return {
         "observation_date":
-            tsmc_quarter_end(
-                int(
-                    current_meta[
-                        "year"
-                    ]
-                ),
-                int(
-                    current_meta[
-                        "quarter"
-                    ]
-                ),
-            )
+            observation_date
             .date()
             .isoformat(),
         "release_timestamp":
@@ -2769,28 +2935,33 @@ def collect_tsmc_hpc_growth_row(
                 4,
             ),
         "source":
-            "TSMC_QUARTERLY_PRESENTATION_"
+            "TSMC_MANAGEMENT_REPORT_"
             "HPC_REVENUE_PROXY",
         "is_proxy":
             True,
         "fetched_at":
             fetched_at.isoformat(),
         "source_id":
-            (
-                f"{current_hash},"
-                f"{previous_hash}"
-            ),
+            f"{current_hash},{previous_hash}",
         "period_basis":
             "QUARTERLY_YOY",
         "metric_basis":
             "NET_REVENUE_X_HPC_SHARE_YOY",
         "document_url":
             current_meta[
-                "pdf_url"
+                "management_report_url"
             ],
         "comparison_document_url":
             previous_meta[
-                "pdf_url"
+                "management_report_url"
+            ],
+        "quarterly_page_url":
+            current_meta[
+                "page_url"
+            ],
+        "comparison_quarterly_page_url":
+            previous_meta[
+                "page_url"
             ],
         "document_sha256":
             current_hash,
@@ -2926,14 +3097,32 @@ def parse_micron_event_timestamp(
 
 
 def discover_latest_micron_prepared_remarks() -> dict[str, Any]:
+    """
+    Find the latest official Micron Prepared Remarks PDF from the
+    lighter Quarterly Results page.
+
+    The former Events & Presentations page repeatedly timed out on the
+    GitHub-hosted runner.
+    """
+
     response = SESSION.get(
-        MICRON_EVENTS_URL,
-        timeout=(10, 60),
+        MICRON_QUARTERLY_RESULTS_URL,
+        headers={
+            "User-Agent":
+                "Mozilla/5.0 (X11; Linux x86_64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/126.0 Safari/537.36",
+            "Accept":
+                "text/html,application/xhtml+xml,"
+                "application/xml;q=0.9,*/*;q=0.8",
+        },
+        timeout=(15, 120),
     )
 
     if not response.ok:
         raise RuntimeError(
-            "Micron events page request failed: "
+            "Micron quarterly-results request failed: "
             f"status={response.status_code}; "
             f"body={response.text[:500]}"
         )
@@ -2947,80 +3136,154 @@ def discover_latest_micron_prepared_remarks() -> dict[str, Any]:
         dict[str, Any]
     ] = []
 
-    title_pattern = re.compile(
-        r"\bQ([1-4])\s+(20\d{2})\s+"
-        r"Prepared Remarks\b",
-        flags=re.IGNORECASE,
-    )
-
-    for anchor in soup.find_all(
+    heading_names = {
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "button",
         "a",
-        href=True,
-    ):
-        title = " ".join(
-            anchor.get_text(
+        "div",
+        "span",
+    }
+
+    def tag_text(
+        tag: Any,
+    ) -> str:
+        return " ".join(
+            tag.get_text(
                 " ",
                 strip=True,
             ).split()
         )
 
-        match = title_pattern.search(
-            title
+    for anchor in soup.find_all(
+        "a",
+        href=True,
+    ):
+        label = tag_text(
+            anchor
         )
 
-        if not match:
+        if "prepared remarks" not in label.lower():
             continue
+
+        quarter_tag = anchor.find_previous(
+            lambda tag: (
+                getattr(
+                    tag,
+                    "name",
+                    None,
+                )
+                in heading_names
+                and re.fullmatch(
+                    r"Q[1-4]",
+                    tag_text(
+                        tag
+                    ),
+                    flags=re.IGNORECASE,
+                )
+                is not None
+            )
+        )
+
+        year_tag = anchor.find_previous(
+            lambda tag: (
+                getattr(
+                    tag,
+                    "name",
+                    None,
+                )
+                in heading_names
+                and re.fullmatch(
+                    r"20\d{2}",
+                    tag_text(
+                        tag
+                    ),
+                )
+                is not None
+            )
+        )
+
+        if (
+            quarter_tag is None
+            or year_tag is None
+        ):
+            continue
+
+        quarter_match = re.fullmatch(
+            r"Q([1-4])",
+            tag_text(
+                quarter_tag
+            ),
+            flags=re.IGNORECASE,
+        )
+
+        year_match = re.fullmatch(
+            r"(20\d{2})",
+            tag_text(
+                year_tag
+            ),
+        )
+
+        if (
+            quarter_match is None
+            or year_match is None
+        ):
+            continue
+
+        fiscal_quarter = int(
+            quarter_match.group(1)
+        )
+
+        fiscal_year = int(
+            year_match.group(1)
+        )
+
+        pdf_url = urljoin(
+            MICRON_QUARTERLY_RESULTS_URL,
+            anchor[
+                "href"
+            ],
+        )
 
         candidates.append(
             {
                 "fiscal_quarter":
-                    int(
-                        match.group(1)
-                    ),
+                    fiscal_quarter,
                 "fiscal_year":
-                    int(
-                        match.group(2)
-                    ),
+                    fiscal_year,
                 "title":
-                    title,
+                    f"Q{fiscal_quarter} "
+                    f"{fiscal_year} "
+                    "Prepared Remarks",
                 "pdf_url":
-                    urljoin(
-                        MICRON_EVENTS_URL,
-                        anchor[
-                            "href"
-                        ],
-                    ),
+                    pdf_url,
+                # The precise release date is parsed from the PDF.
                 "release_timestamp":
-                    parse_micron_event_timestamp(
-                        anchor
-                    ),
+                    None,
             }
         )
 
     if not candidates:
+        page_preview = " ".join(
+            soup.get_text(
+                " ",
+                strip=True,
+            ).split()
+        )[:2000]
+
         raise RuntimeError(
-            "No Micron Prepared Remarks "
-            "links were discovered"
+            "No Micron Prepared Remarks links "
+            "were discovered on Quarterly Results. "
+            f"Page preview={page_preview!r}"
         )
 
-    def candidate_key(
-        item: dict[str, Any],
-    ) -> tuple[int, int, int]:
-        timestamp = item.get(
-            "release_timestamp"
-        )
-
-        timestamp_value = (
-            int(
-                pd.Timestamp(
-                    timestamp
-                ).value
-            )
-            if timestamp is not None
-            else 0
-        )
-
-        return (
+    return max(
+        candidates,
+        key=lambda item: (
             int(
                 item[
                     "fiscal_year"
@@ -3031,12 +3294,7 @@ def discover_latest_micron_prepared_remarks() -> dict[str, Any]:
                     "fiscal_quarter"
                 ]
             ),
-            timestamp_value,
-        )
-
-    return max(
-        candidates,
-        key=candidate_key,
+        ),
     )
 
 
@@ -3323,7 +3581,7 @@ def collect_ai_cycle() -> None:
 
     1. NVIDIA quarterly total-revenue YoY proxy.
     2. Hyperscaler CapEx YoY, amount weighted.
-    3. TSMC HPC revenue-growth proxy from official presentations.
+    3. TSMC HPC revenue-growth proxy from official Management Reports.
     4. Micron Data Center / HBM growth from official Prepared Remarks.
 
     TSMC and Micron remain proxy rows because their values are derived
