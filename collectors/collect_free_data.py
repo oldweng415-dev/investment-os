@@ -1,37 +1,49 @@
 from __future__ import annotations
 
-"""Collect a free live-public SEC valuation proxy for Investment OS.
+"""Collect free live-public PIT inputs for Investment OS.
 
-Output:
-    data/valuation_pit.csv
+Outputs:
+- data/valuation_pit.csv
+- data/macro_nowcast_pit.csv
+- data/positioning_pit.csv
+- data/events.csv
+- data/ai_cycle_pit.csv
 
-The collector uses:
-- SEC EDGAR Company Facts: latest standardized annual fundamentals
-- Yahoo Finance: latest public market capitalization and price date
-- FRED DFII10: latest 10-year real yield
-
-It does not create forward estimates. All rows are marked is_proxy=true.
+No paid data is used. Values that rely on a conservative publication-time
+assumption or a derived basket are explicitly marked is_proxy=true.
 """
 
 import logging
 import math
 import os
+import re
 import time
+from io import StringIO
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable, Optional
 
 import numpy as np
 import pandas as pd
 import pandas_market_calendars as mcal
 import requests
 import yfinance as yf
+from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+
 DATA_DIR = Path("data")
-OUTPUT_FILE = DATA_DIR / "valuation_pit.csv"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+VALUATION_FILE = DATA_DIR / "valuation_pit.csv"
+NOWCAST_FILE = DATA_DIR / "macro_nowcast_pit.csv"
+POSITIONING_FILE = DATA_DIR / "positioning_pit.csv"
+EVENTS_FILE = DATA_DIR / "events.csv"
+AI_CYCLE_FILE = DATA_DIR / "ai_cycle_pit.csv"
+
 FRED_API_KEY = os.getenv("FRED_API_KEY", "").strip()
 SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "").strip()
+CFTC_APP_TOKEN = os.getenv("CFTC_APP_TOKEN", "").strip()
 
 COMPANIES: dict[str, str] = {
     "NVDA": "0001045810",
@@ -42,6 +54,11 @@ COMPANIES: dict[str, str] = {
 }
 
 NET_INCOME_CONCEPTS = ("NetIncomeLoss", "ProfitLoss")
+REVENUE_CONCEPTS = (
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "Revenues",
+    "SalesRevenueNet",
+)
 OCF_CONCEPTS = (
     "NetCashProvidedByUsedInOperatingActivities",
     "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
@@ -52,7 +69,7 @@ CAPEX_CONCEPTS = (
     "PaymentsToAcquireProductiveAssets",
 )
 
-OUTPUT_COLUMNS = [
+VALUATION_COLUMNS = [
     "observation_date",
     "release_timestamp",
     "effective_trade_date",
@@ -71,7 +88,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
-LOGGER = logging.getLogger("sec_valuation_collector")
+LOGGER = logging.getLogger("free_public_collectors")
 
 
 def build_session() -> requests.Session:
@@ -86,13 +103,13 @@ def build_session() -> requests.Session:
         respect_retry_after_header=True,
     )
     session = requests.Session()
-    adapter = HTTPAdapter(max_retries=retry)
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     session.headers.update(
         {
-            "User-Agent": SEC_USER_AGENT,
-            "Accept": "application/json,text/plain,*/*",
+            "User-Agent": SEC_USER_AGENT or "Investment-OS/1.0",
+            "Accept": "application/json,text/csv,text/html,text/calendar,*/*",
         }
     )
     return session
@@ -115,84 +132,51 @@ def utc_now() -> pd.Timestamp:
     return pd.Timestamp.now(tz="UTC")
 
 
-def resolve_effective_trade_date(
-    fetched_at: pd.Timestamp,
-) -> str:
-    """
-    決定資料可從哪個 NYSE 交易日使用。
-
-    規則：
-    - 美東交易日 09:30 前抓到：
-      當日可以用
-    - 09:30 後抓到：
-      下一個 NYSE 交易日才可以用
-    - 週末或休市日：
-      下一個 NYSE 交易日才可以用
-    """
-
-    timestamp = pd.Timestamp(
-        fetched_at
-    )
-
+def resolve_effective_trade_date(fetched_at: pd.Timestamp) -> str:
+    """Resolve the first NYSE session on which newly fetched data may be used."""
+    timestamp = pd.Timestamp(fetched_at)
     if timestamp.tzinfo is None:
-        timestamp = timestamp.tz_localize(
-            "UTC"
-        )
+        timestamp = timestamp.tz_localize("UTC")
     else:
-        timestamp = timestamp.tz_convert(
-            "UTC"
-        )
+        timestamp = timestamp.tz_convert("UTC")
 
-    eastern_time = timestamp.tz_convert(
-        "America/New_York"
-    )
-
-    local_date = pd.Timestamp(
-        eastern_time.date()
-    )
-
+    eastern = timestamp.tz_convert("America/New_York")
+    local_date = pd.Timestamp(eastern.date())
     nyse = mcal.get_calendar("NYSE")
-
     schedule = nyse.schedule(
-        start_date=(
-            local_date
-            - pd.Timedelta(days=1)
-        ).date(),
-        end_date=(
-            local_date
-            + pd.Timedelta(days=14)
-        ).date(),
+        start_date=(local_date - pd.Timedelta(days=1)).date(),
+        end_date=(local_date + pd.Timedelta(days=14)).date(),
     )
 
-    # 今天是交易日，而且資料在開盤前已取得
     if local_date in schedule.index:
-        market_open = pd.Timestamp(
-            schedule.loc[
-                local_date,
-                "market_open",
-            ]
-        )
-
+        market_open = pd.Timestamp(schedule.loc[local_date, "market_open"])
         if timestamp <= market_open:
             return local_date.date().isoformat()
 
-    # 否則使用下一個尚未開盤的交易日
-    future_sessions = schedule[
-        schedule["market_open"] > timestamp
-    ]
+    future = schedule[schedule["market_open"] > timestamp]
+    if future.empty:
+        raise RuntimeError("Unable to resolve effective NYSE trade date.")
+    return pd.Timestamp(future.index[0]).date().isoformat()
 
-    if future_sessions.empty:
-        raise RuntimeError(
-            "Unable to resolve effective NYSE trade date."
-        )
 
-    return (
-        pd.Timestamp(
-            future_sessions.index[0]
-        )
-        .date()
-        .isoformat()
+def latest_completed_nyse_session(fetched_at: pd.Timestamp) -> str:
+    """Return the latest NYSE session whose regular close has already passed."""
+    timestamp = pd.Timestamp(fetched_at)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("UTC")
+    else:
+        timestamp = timestamp.tz_convert("UTC")
+
+    eastern_date = pd.Timestamp(timestamp.tz_convert("America/New_York").date())
+    nyse = mcal.get_calendar("NYSE")
+    schedule = nyse.schedule(
+        start_date=(eastern_date - pd.Timedelta(days=14)).date(),
+        end_date=eastern_date.date(),
     )
+    completed = schedule[schedule["market_close"] <= timestamp]
+    if completed.empty:
+        raise RuntimeError("Unable to resolve latest completed NYSE session.")
+    return pd.Timestamp(completed.index[-1]).date().isoformat()
 
 
 def logistic_score(
@@ -206,6 +190,49 @@ def logistic_score(
     z = float(np.clip(z, -20.0, 20.0))
     return float(np.clip(100.0 / (1.0 + math.exp(-z)), 0.0, 100.0))
 
+
+def append_pit_csv(
+    path: Path,
+    new_rows: pd.DataFrame,
+    dedupe_keys: Iterable[str],
+    sort_columns: Iterable[str] = ("effective_trade_date", "metric"),
+) -> None:
+    if new_rows.empty:
+        LOGGER.warning("No rows to append to %s", path)
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        existing = pd.read_csv(path)
+        output = pd.concat([existing, new_rows], ignore_index=True, sort=False)
+    else:
+        output = new_rows.copy()
+
+    keys = [key for key in dedupe_keys if key in output.columns]
+    if keys:
+        output = output.drop_duplicates(subset=keys, keep="last")
+
+    sort_keys = [key for key in sort_columns if key in output.columns]
+    if sort_keys:
+        output = output.sort_values(sort_keys)
+
+    output.to_csv(path, index=False)
+    LOGGER.info("Saved %s rows to %s", len(output), path)
+
+
+def run_safely(name: str, function: Callable[[], None]) -> bool:
+    try:
+        function()
+        LOGGER.info("%s completed", name)
+        return True
+    except Exception:
+        LOGGER.exception("%s failed", name)
+        return False
+
+
+# ============================================================
+# SEC helpers
+# ============================================================
 
 def sec_get_json(url: str) -> dict[str, Any]:
     response = SESSION.get(url, timeout=(10, 60))
@@ -244,38 +271,43 @@ def concept_rows(
         if column in frame.columns:
             frame[column] = pd.to_datetime(frame[column], errors="coerce")
     frame["val"] = pd.to_numeric(frame.get("val"), errors="coerce")
-    return frame.dropna(subset=["val", "filed", "end"])
+    return frame.dropna(subset=["val", "filed", "end"]).sort_values(
+        ["end", "filed"]
+    )
+
+
+def annual_fact_history(
+    company_facts: dict[str, Any],
+    concept_names: Iterable[str],
+) -> pd.DataFrame:
+    frame = concept_rows(company_facts, concept_names)
+    if frame.empty:
+        return frame
+
+    if "form" in frame.columns:
+        frame = frame[frame["form"].astype(str).isin(("10-K", "20-F", "40-F"))]
+    if "start" in frame.columns:
+        duration = (frame["end"] - frame["start"]).dt.days
+        frame = frame[duration.between(300, 430, inclusive="both")]
+    if "fp" in frame.columns:
+        fy = frame[frame["fp"].astype(str).str.upper().eq("FY")]
+        if not fy.empty:
+            frame = fy
+
+    return (
+        frame.sort_values(["end", "filed"])
+        .drop_duplicates(subset=["end"], keep="last")
+    )
 
 
 def latest_annual_fact(
     company_facts: dict[str, Any],
     concept_names: Iterable[str],
-) -> dict[str, Any] | None:
-    frame = concept_rows(company_facts, concept_names)
+) -> Optional[dict[str, Any]]:
+    frame = annual_fact_history(company_facts, concept_names)
     if frame.empty:
         return None
-
-    if "form" in frame.columns:
-        frame = frame[frame["form"].astype(str).isin(("10-K", "20-F", "40-F"))]
-    if frame.empty:
-        return None
-
-    if "start" in frame.columns:
-        duration_days = (frame["end"] - frame["start"]).dt.days
-        frame = frame[duration_days.between(300, 430, inclusive="both")]
-    if frame.empty:
-        return None
-
-    if "fp" in frame.columns:
-        fy_rows = frame[frame["fp"].astype(str).str.upper().eq("FY")]
-        if not fy_rows.empty:
-            frame = fy_rows
-
-    row = (
-        frame.sort_values(["end", "filed"])
-        .drop_duplicates(subset=["end"], keep="last")
-        .iloc[-1]
-    )
+    row = frame.iloc[-1]
     return {
         "value": float(row["val"]),
         "filed": pd.Timestamp(row["filed"]),
@@ -285,9 +317,66 @@ def latest_annual_fact(
     }
 
 
+def latest_period_yoy(
+    company_facts: dict[str, Any],
+    concept_names: Iterable[str],
+    min_duration_days: int,
+    max_duration_days: int,
+) -> Optional[dict[str, Any]]:
+    """Find the newest duration fact and a comparable prior-year duration fact."""
+    frame = concept_rows(company_facts, concept_names)
+    if frame.empty or "start" not in frame.columns:
+        return None
+
+    if "form" in frame.columns:
+        frame = frame[frame["form"].astype(str).isin(("10-Q", "10-K"))]
+
+    frame = frame.copy()
+    frame["duration_days"] = (frame["end"] - frame["start"]).dt.days
+    frame = frame[
+        frame["duration_days"].between(
+            min_duration_days,
+            max_duration_days,
+            inclusive="both",
+        )
+    ]
+    frame = (
+        frame.sort_values(["end", "filed"])
+        .drop_duplicates(subset=["end", "duration_days"], keep="last")
+    )
+
+    if frame.empty:
+        return None
+
+    current = frame.iloc[-1]
+    prior = frame[
+        (frame["end"] >= current["end"] - pd.Timedelta(days=400))
+        & (frame["end"] <= current["end"] - pd.Timedelta(days=330))
+        & (
+            (frame["duration_days"] - current["duration_days"]).abs()
+            <= 20
+        )
+    ]
+    if prior.empty:
+        return None
+
+    previous = prior.iloc[-1]
+    previous_value = float(previous["val"])
+    if previous_value == 0:
+        return None
+
+    return {
+        "value": 100.0 * (float(current["val"]) / previous_value - 1.0),
+        "filed": pd.Timestamp(current["filed"]),
+        "period_end": pd.Timestamp(current["end"]),
+        "accession": str(current.get("accn", "")),
+        "concept": str(current.get("concept", "")),
+    }
+
+
 def latest_market_cap(ticker: str) -> tuple[float, str]:
     security = yf.Ticker(ticker)
-    market_cap: float | None = None
+    market_cap: Optional[float] = None
 
     try:
         market_cap = float(security.fast_info["market_cap"])
@@ -300,6 +389,7 @@ def latest_market_cap(ticker: str) -> tuple[float, str]:
     history = security.history(period="10d", interval="1d", auto_adjust=False)
     if history.empty or "Close" not in history.columns:
         raise RuntimeError(f"No recent price history for {ticker}")
+
     close = pd.to_numeric(history["Close"], errors="coerce").dropna()
     if close.empty:
         raise RuntimeError(f"No usable close price for {ticker}")
@@ -326,11 +416,12 @@ def latest_fred_value(series_id: str) -> tuple[float, str]:
             "series_id": series_id,
             "api_key": FRED_API_KEY,
             "file_type": "json",
-            "observation_start": "2020-01-01",
+            "observation_start": "2012-01-01",
         },
         timeout=(10, 60),
     )
     response.raise_for_status()
+
     frame = pd.DataFrame(response.json().get("observations", []))
     if frame.empty:
         raise RuntimeError(f"FRED returned no data for {series_id}")
@@ -345,38 +436,13 @@ def latest_fred_value(series_id: str) -> tuple[float, str]:
     return float(latest["value"]), latest["date"].date().isoformat()
 
 
-def append_rows(new_rows: pd.DataFrame) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if OUTPUT_FILE.exists():
-        existing = pd.read_csv(OUTPUT_FILE)
-        output = pd.concat([existing, new_rows], ignore_index=True, sort=False)
-    else:
-        output = new_rows.copy()
-
-    for column in OUTPUT_COLUMNS:
-        if column not in output.columns:
-            output[column] = np.nan
-
-    output = (
-        output[OUTPUT_COLUMNS]
-        .drop_duplicates(
-            subset=["observation_date", "asset", "metric"],
-            keep="last",
-        )
-        .sort_values(["effective_trade_date", "asset", "metric"])
-    )
-    output.to_csv(OUTPUT_FILE, index=False)
-
+# ============================================================
+# 1. SEC valuation proxy
+# ============================================================
 
 def collect_sec_valuation() -> None:
-    LOGGER.info("Collector started; cwd=%s; output=%s", Path.cwd(), OUTPUT_FILE)
-    validate_environment()
     fetched_at = utc_now()
-    effective_trade_date = (
-    resolve_effective_trade_date(
-        fetched_at
-    )
-)
+    effective_trade_date = resolve_effective_trade_date(fetched_at)
 
     total_market_cap = 0.0
     total_net_income = 0.0
@@ -389,17 +455,14 @@ def collect_sec_valuation() -> None:
 
     for ticker, cik in COMPANIES.items():
         try:
-            LOGGER.info("Collecting SEC facts for %s", ticker)
+            LOGGER.info("Collecting SEC valuation facts for %s", ticker)
             facts = fetch_company_facts(cik)
             net_income = latest_annual_fact(facts, NET_INCOME_CONCEPTS)
             ocf = latest_annual_fact(facts, OCF_CONCEPTS)
             capex = latest_annual_fact(facts, CAPEX_CONCEPTS)
 
             if not net_income or not ocf or not capex:
-                LOGGER.warning(
-                    "Skipping %s: incomplete standardized annual facts",
-                    ticker,
-                )
+                LOGGER.warning("Skipping %s: incomplete annual facts", ticker)
                 continue
 
             market_cap, price_date = latest_market_cap(ticker)
@@ -408,9 +471,7 @@ def collect_sec_valuation() -> None:
             total_ocf += ocf["value"]
             total_capex += abs(capex["value"])
             price_dates.append(price_date)
-            filing_dates.extend(
-                [net_income["filed"], ocf["filed"], capex["filed"]]
-            )
+            filing_dates.extend([net_income["filed"], ocf["filed"], capex["filed"]])
             accessions.extend(
                 value
                 for value in (
@@ -421,12 +482,11 @@ def collect_sec_valuation() -> None:
                 if value
             )
             included.append(ticker)
-            LOGGER.info("%s valuation inputs accepted", ticker)
         except Exception:
-            LOGGER.exception("Skipping %s because collection failed", ticker)
+            LOGGER.exception("Skipping %s valuation inputs", ticker)
 
     if len(included) < 3:
-        raise RuntimeError("Fewer than three companies had complete SEC inputs")
+        raise RuntimeError("Fewer than three companies had complete valuation inputs")
     if total_market_cap <= 0 or total_net_income <= 0:
         raise RuntimeError("Aggregate market cap or net income is invalid")
 
@@ -471,26 +531,22 @@ def collect_sec_valuation() -> None:
             for metric, value, score in metrics
         ]
     )
-    append_rows(rows)
 
-    if not OUTPUT_FILE.is_file() or OUTPUT_FILE.stat().st_size == 0:
-        raise RuntimeError(f"Output file was not written: {OUTPUT_FILE}")
-
-    LOGGER.info(
-        "Saved valuation proxy: companies=%s date=%s PE=%.2f EY=%.2f%% FCFY=%.2f%% ERP=%.2f%%",
-        ",".join(included),
-        observation_date,
-        trailing_pe,
-        earnings_yield,
-        fcf_yield,
-        erp,
+    append_pit_csv(
+        VALUATION_FILE,
+        rows,
+        ("observation_date", "asset", "metric"),
+        ("effective_trade_date", "asset", "metric"),
     )
-    LOGGER.info("Output: %s", OUTPUT_FILE)
+
+
+# ============================================================
+# 2. GDPNow
+# ============================================================
 
 def collect_gdpnow() -> None:
     response = SESSION.get(
-        "https://api.stlouisfed.org/"
-        "fred/series/observations",
+        "https://api.stlouisfed.org/fred/series/observations",
         params={
             "series_id": "GDPNOW",
             "api_key": FRED_API_KEY,
@@ -499,193 +555,634 @@ def collect_gdpnow() -> None:
         },
         timeout=(10, 60),
     )
-
     response.raise_for_status()
 
-    frame = pd.DataFrame(
-        response.json().get(
-            "observations",
-            [],
-        )
-    )
-
+    frame = pd.DataFrame(response.json().get("observations", []))
     if frame.empty:
-        raise RuntimeError(
-            "FRED GDPNOW returned no rows"
-        )
+        raise RuntimeError("FRED GDPNOW returned no rows")
 
-    frame["date"] = pd.to_datetime(
-        frame["date"],
-        errors="coerce",
-    )
-
-    frame["value"] = pd.to_numeric(
-        frame["value"],
-        errors="coerce",
-    )
-
-    frame = frame.dropna(
-        subset=[
-            "date",
-            "value",
-        ]
-    ).sort_values("date")
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame["value"] = pd.to_numeric(frame["value"], errors="coerce")
+    frame = frame.dropna(subset=["date", "value"]).sort_values("date")
+    if frame.empty:
+        raise RuntimeError("FRED GDPNOW returned no numeric rows")
 
     latest = frame.iloc[-1]
-    fetched_at = pd.Timestamp.now(
-        tz="UTC"
-    )
-
-    value = float(
-        latest["value"]
-    )
-
-    score = float(
-        100.0
-        / (
-            1.0
-            + np.exp(
-                -(value - 1.5)
-                / 1.25
-            )
-        )
-    )
+    fetched_at = utc_now()
+    value = float(latest["value"])
+    score = logistic_score(value, midpoint=1.5, scale=1.25, higher_is_better=True)
 
     rows = pd.DataFrame(
         [
             {
-                "observation_date":
-                    latest["date"]
-                    .date()
-                    .isoformat(),
-                "release_timestamp":
-                    fetched_at.isoformat(),
-                "effective_trade_date":
-                    resolve_effective_trade_date(
-                        fetched_at
-                    ),
-                "metric":
-                    "gdpnow_real_gdp_saar",
-                "value":
-                    round(value, 4),
-                "score":
-                    round(score, 4),
-                "source":
-                    "FRED:GDPNOW",
-                # API observations沒有正式盤中發布時間，
-                # fetched_at 是保守代理。
-                "is_proxy":
-                    True,
-                "fetched_at":
-                    fetched_at.isoformat(),
+                "observation_date": latest["date"].date().isoformat(),
+                "release_timestamp": fetched_at.isoformat(),
+                "effective_trade_date": resolve_effective_trade_date(fetched_at),
+                "metric": "gdpnow_real_gdp_saar",
+                "value": round(value, 4),
+                "score": round(score, 4),
+                "source": "FRED:GDPNOW",
+                "is_proxy": True,
+                "fetched_at": fetched_at.isoformat(),
             }
         ]
     )
 
     append_pit_csv(
-        Path(
-            "data/macro_nowcast_pit.csv"
-        ),
+        NOWCAST_FILE,
         rows,
-        [
-            "observation_date",
-            "metric",
-            "source",
-        ],
+        ("effective_trade_date", "metric", "source"),
     )
+
+
+# ============================================================
+# 3. Cboe Equity Put/Call
+# ============================================================
+
+def parse_cboe_equity_pc_csv(text: str) -> pd.DataFrame:
+    lines = text.replace("\r\n", "\n").split("\n")
+    header_index = None
+    for index, line in enumerate(lines):
+        upper = line.upper()
+        if "DATE" in upper and ("P/C" in upper or "RATIO" in upper):
+            header_index = index
+            break
+    if header_index is None:
+        raise RuntimeError("Unable to locate Cboe equity put/call CSV header")
+
+    frame = pd.read_csv(StringIO("\n".join(lines[header_index:])))
+    frame.columns = [re.sub(r"\s+", " ", str(column).strip().upper()) for column in frame.columns]
+
+    date_column = next((column for column in frame.columns if "DATE" in column), None)
+    ratio_column = next(
+        (
+            column
+            for column in frame.columns
+            if "P/C" in column or ("PUT" in column and "CALL" in column and "RATIO" in column)
+        ),
+        None,
+    )
+
+    if date_column is None:
+        raise RuntimeError("Cboe equity put/call CSV has no date column")
+
+    frame["observation_date"] = pd.to_datetime(frame[date_column], errors="coerce")
+
+    if ratio_column is not None:
+        frame["ratio"] = pd.to_numeric(frame[ratio_column], errors="coerce")
+    else:
+        call_column = next(
+            (column for column in frame.columns if "CALL" in column and "VOLUME" in column),
+            None,
+        )
+        put_column = next(
+            (column for column in frame.columns if "PUT" in column and "VOLUME" in column),
+            None,
+        )
+        if call_column is None or put_column is None:
+            raise RuntimeError("Cboe equity put/call CSV has no usable ratio or volume columns")
+        calls = pd.to_numeric(frame[call_column], errors="coerce")
+        puts = pd.to_numeric(frame[put_column], errors="coerce")
+        frame["ratio"] = puts / calls.replace(0, np.nan)
+
+    return frame.dropna(subset=["observation_date", "ratio"]).sort_values(
+        "observation_date"
+    )
+
 
 def collect_cboe_put_call() -> None:
     response = SESSION.get(
-        "https://www.cboe.com/markets/"
-        "us/options/market-statistics/daily/",
+        "https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/equitypc.csv",
         timeout=(10, 60),
     )
-
     response.raise_for_status()
 
-    text = BeautifulSoup(
-        response.text,
-        "html.parser",
-    ).get_text(
-        " ",
-        strip=True,
-    )
+    frame = parse_cboe_equity_pc_csv(response.text)
+    if frame.empty:
+        raise RuntimeError("Cboe equity put/call CSV returned no usable rows")
 
-    match = re.search(
-        r"EQUITY\s+PUT/CALL\s+RATIO"
-        r"\s+([0-9]+(?:\.[0-9]+)?)",
-        text,
-        flags=re.IGNORECASE,
-    )
-
-    if not match:
-        raise RuntimeError(
-            "Unable to parse Cboe "
-            "Equity Put/Call Ratio"
-        )
-
-    value = float(
-        match.group(1)
-    )
-
-    fetched_at = pd.Timestamp.now(
-        tz="UTC"
-    )
-
-    score = float(
-        100.0
-        / (
-            1.0
-            + np.exp(
-                -(value - 0.70)
-                / 0.12
-            )
-        )
-    )
+    latest = frame.iloc[-1]
+    fetched_at = utc_now()
+    value = float(latest["ratio"])
+    score = logistic_score(value, midpoint=0.70, scale=0.12, higher_is_better=True)
 
     rows = pd.DataFrame(
         [
             {
-                "observation_date":
-                    latest_completed_nyse_session(
-                        fetched_at
-                    ),
-                "release_timestamp":
-                    fetched_at.isoformat(),
-                "effective_trade_date":
-                    resolve_effective_trade_date(
-                        fetched_at
-                    ),
-                "metric":
-                    "equity_put_call",
-                "value":
-                    round(value, 4),
-                "score":
-                    round(score, 4),
-                "source":
-                    "CBOE_DAILY_STATISTICS",
-                "is_proxy":
-                    False,
-                "fetched_at":
-                    fetched_at.isoformat(),
+                "observation_date": latest["observation_date"].date().isoformat(),
+                "release_timestamp": fetched_at.isoformat(),
+                "effective_trade_date": resolve_effective_trade_date(fetched_at),
+                "metric": "equity_put_call",
+                "value": round(value, 4),
+                "score": round(score, 4),
+                "source": "CBOE_EQUITY_PC_CSV",
+                "is_proxy": True,
+                "fetched_at": fetched_at.isoformat(),
             }
         ]
     )
 
     append_pit_csv(
-        Path(
-            "data/positioning_pit.csv"
-        ),
+        POSITIONING_FILE,
         rows,
-        [
-            "observation_date",
-            "metric",
-            "source",
-        ],
+        ("observation_date", "metric", "source"),
     )
 
+
+# ============================================================
+# 4. CFTC TFF positioning
+# ============================================================
+
+def collect_cftc_positioning() -> None:
+    headers: dict[str, str] = {}
+    if CFTC_APP_TOKEN:
+        headers["X-App-Token"] = CFTC_APP_TOKEN
+
+    response = SESSION.get(
+        "https://publicreporting.cftc.gov/resource/gpe5-46if.json",
+        params={
+            "$limit": 5000,
+            "$order": "report_date_as_yyyy_mm_dd ASC",
+            "$where": (
+                "report_date_as_yyyy_mm_dd >= '2012-01-01T00:00:00.000' "
+                "AND upper(market_and_exchange_names) like '%NASDAQ-100%'"
+            ),
+        },
+        headers=headers,
+        timeout=(10, 90),
+    )
+    response.raise_for_status()
+    records = response.json()
+    if not records:
+        raise RuntimeError("CFTC TFF API returned no NASDAQ-100 rows")
+
+    frame = pd.DataFrame(records)
+    required = {
+        "report_date_as_yyyy_mm_dd",
+        "open_interest_all",
+        "lev_money_positions_long_all",
+        "lev_money_positions_short_all",
+    }
+    missing = required - set(frame.columns)
+    if missing:
+        raise RuntimeError(f"CFTC TFF response missing columns: {sorted(missing)}")
+
+    frame["report_date"] = pd.to_datetime(
+        frame["report_date_as_yyyy_mm_dd"],
+        errors="coerce",
+    )
+    for column in (
+        "open_interest_all",
+        "lev_money_positions_long_all",
+        "lev_money_positions_short_all",
+    ):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+
+    frame = frame.dropna(
+        subset=[
+            "report_date",
+            "open_interest_all",
+            "lev_money_positions_long_all",
+            "lev_money_positions_short_all",
+        ]
+    ).sort_values("report_date")
+    frame = frame[frame["open_interest_all"] > 0]
+    if frame.empty:
+        raise RuntimeError("CFTC TFF response contains no usable rows")
+
+    frame["net_pct_open_interest"] = (
+        100.0
+        * (
+            frame["lev_money_positions_long_all"]
+            - frame["lev_money_positions_short_all"]
+        )
+        / frame["open_interest_all"]
+    )
+
+    current = frame.iloc[-1]
+    trailing = frame.tail(156)["net_pct_open_interest"].dropna()
+    percentile = 100.0 * (
+        (trailing < float(current["net_pct_open_interest"])).sum()
+        + 0.5 * (trailing == float(current["net_pct_open_interest"])).sum()
+    ) / len(trailing)
+    score = float(np.clip(100.0 - percentile, 0.0, 100.0))
+
+    report_date = pd.Timestamp(current["report_date"]).tz_localize(None)
+    release_local = (
+        report_date
+        + pd.Timedelta(days=3)
+        + pd.Timedelta(hours=15, minutes=30)
+    ).tz_localize("America/New_York")
+    release_timestamp = release_local.tz_convert("UTC")
+
+    rows = pd.DataFrame(
+        [
+            {
+                "observation_date": report_date.date().isoformat(),
+                "release_timestamp": release_timestamp.isoformat(),
+                "effective_trade_date": resolve_effective_trade_date(
+                    release_timestamp
+                ),
+                "metric": "cftc_positioning",
+                "value": round(float(current["net_pct_open_interest"]), 6),
+                "score": round(score, 4),
+                "source": "CFTC_TFF_FUTURES_ONLY_GPE5_46IF",
+                "is_proxy": True,
+                "fetched_at": utc_now().isoformat(),
+            }
+        ]
+    )
+
+    append_pit_csv(
+        POSITIONING_FILE,
+        rows,
+        ("observation_date", "metric", "source"),
+    )
+
+
+# ============================================================
+# 5. Events
+# ============================================================
+
+def unfold_ics(text: str) -> list[str]:
+    output: list[str] = []
+    for line in text.replace("\r\n", "\n").split("\n"):
+        if line.startswith((" ", "\t")) and output:
+            output[-1] += line[1:]
+        else:
+            output.append(line)
+    return output
+
+
+def parse_ics_events(text: str, source: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    current: dict[str, str] = {}
+    inside = False
+
+    for line in unfold_ics(text):
+        if line == "BEGIN:VEVENT":
+            current = {}
+            inside = True
+            continue
+        if line == "END:VEVENT":
+            inside = False
+            date_raw = current.get("DTSTART", "")
+            summary = current.get("SUMMARY", "").replace("\\,", ",").strip()
+            date_match = re.search(r"(\d{8})", date_raw)
+            if date_match and summary:
+                event_date = pd.to_datetime(
+                    date_match.group(1),
+                    format="%Y%m%d",
+                    errors="coerce",
+                )
+                if pd.notna(event_date):
+                    events.append(
+                        {
+                            "event_date": event_date.date().isoformat(),
+                            "asset": "MARKET",
+                            "event_type": "macro_release",
+                            "description": summary,
+                            "source": source,
+                            "is_proxy": False,
+                        }
+                    )
+            current = {}
+            continue
+
+        if inside and ":" in line:
+            key, value = line.split(":", 1)
+            current[key.split(";", 1)[0]] = value
+
+    return events
+
+
+def collect_bls_events() -> list[dict[str, Any]]:
+    response = SESSION.get(
+        "https://www.bls.gov/schedule/news_release/bls.ics",
+        timeout=(10, 60),
+    )
+    response.raise_for_status()
+    return parse_ics_events(response.text, "BLS_ICS")
+
+
+def collect_bea_events() -> list[dict[str, Any]]:
+    response = SESSION.get("https://www.bea.gov/news/schedule", timeout=(10, 60))
+    response.raise_for_status()
+    tables = pd.read_html(StringIO(response.text))
+    events: list[dict[str, Any]] = []
+
+    for table in tables:
+        if table.empty:
+            continue
+        columns = [str(column).strip().lower() for column in table.columns]
+        table.columns = columns
+
+        date_column = next(
+            (column for column in columns if "date" in column),
+            None,
+        )
+        release_column = next(
+            (
+                column
+                for column in columns
+                if "release" in column or "title" in column
+            ),
+            None,
+        )
+        if date_column is None:
+            continue
+
+        for _, row in table.iterrows():
+            event_date = pd.to_datetime(row.get(date_column), errors="coerce")
+            if pd.isna(event_date):
+                continue
+            description = str(
+                row.get(release_column)
+                if release_column is not None
+                else "BEA economic release"
+            ).strip()
+            if not description or description.lower() == "nan":
+                description = "BEA economic release"
+
+            events.append(
+                {
+                    "event_date": event_date.date().isoformat(),
+                    "asset": "MARKET",
+                    "event_type": "macro_release",
+                    "description": description,
+                    "source": "BEA_RELEASE_SCHEDULE",
+                    "is_proxy": False,
+                }
+            )
+
+    return events
+
+
+def collect_fomc_events() -> list[dict[str, Any]]:
+    response = SESSION.get(
+        "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+        timeout=(10, 60),
+    )
+    response.raise_for_status()
+    text = BeautifulSoup(response.text, "html.parser").get_text("\n", strip=True)
+    current_year = pd.Timestamp.today().year
+    month_numbers = {
+        "January": 1,
+        "February": 2,
+        "March": 3,
+        "April": 4,
+        "May": 5,
+        "June": 6,
+        "July": 7,
+        "August": 8,
+        "September": 9,
+        "October": 10,
+        "November": 11,
+        "December": 12,
+    }
+    events: list[dict[str, Any]] = []
+
+    for year in (current_year, current_year + 1):
+        marker = f"{year} FOMC Meetings"
+        if marker not in text:
+            continue
+        section = text.split(marker, 1)[1]
+        next_marker = f"{year + 1} FOMC Meetings"
+        if next_marker in section:
+            section = section.split(next_marker, 1)[0]
+
+        lines = [line.strip() for line in section.splitlines() if line.strip()]
+        for index, line in enumerate(lines):
+            if line not in month_numbers:
+                continue
+            date_token = None
+            for candidate in lines[index + 1 : index + 5]:
+                if re.fullmatch(r"\d{1,2}(?:-\d{1,2})?\*?", candidate):
+                    date_token = candidate.replace("*", "")
+                    break
+            if date_token is None:
+                continue
+            end_day = int(date_token.split("-")[-1])
+            event_date = pd.Timestamp(
+                year=year,
+                month=month_numbers[line],
+                day=end_day,
+            )
+            events.append(
+                {
+                    "event_date": event_date.date().isoformat(),
+                    "asset": "MARKET",
+                    "event_type": "fed",
+                    "description": "FOMC policy decision",
+                    "source": "FED_FOMC_CALENDAR",
+                    "is_proxy": False,
+                }
+            )
+
+    return events
+
+
+def extract_earnings_dates(calendar: Any) -> list[pd.Timestamp]:
+    dates: list[pd.Timestamp] = []
+    if isinstance(calendar, dict):
+        raw = calendar.get("Earnings Date") or calendar.get("EarningsDate")
+        if isinstance(raw, (list, tuple)):
+            dates.extend(pd.Timestamp(value) for value in raw)
+        elif raw is not None:
+            dates.append(pd.Timestamp(raw))
+    elif isinstance(calendar, pd.DataFrame) and not calendar.empty:
+        for value in calendar.to_numpy().ravel():
+            parsed = pd.to_datetime(value, errors="coerce")
+            if pd.notna(parsed):
+                dates.append(pd.Timestamp(parsed))
+    return dates
+
+
+def collect_earnings_events() -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for ticker in COMPANIES:
+        try:
+            calendar = yf.Ticker(ticker).calendar
+            dates = extract_earnings_dates(calendar)
+            for date in dates:
+                if date.tzinfo is not None:
+                    date = date.tz_convert("America/New_York").tz_localize(None)
+                events.append(
+                    {
+                        "event_date": date.date().isoformat(),
+                        "asset": ticker,
+                        "event_type": "earnings",
+                        "description": f"{ticker} estimated earnings date",
+                        "source": "YFINANCE_EARNINGS_PROXY",
+                        "is_proxy": True,
+                    }
+                )
+        except Exception:
+            LOGGER.exception("Unable to collect earnings date for %s", ticker)
+    return events
+
+
+def collect_events() -> None:
+    rows: list[dict[str, Any]] = []
+    for name, function in (
+        ("BLS", collect_bls_events),
+        ("BEA", collect_bea_events),
+        ("FOMC", collect_fomc_events),
+        ("earnings", collect_earnings_events),
+    ):
+        try:
+            rows.extend(function())
+        except Exception:
+            LOGGER.exception("%s event source failed", name)
+
+    if not rows:
+        raise RuntimeError("No event source returned usable rows")
+
+    frame = pd.DataFrame(rows)
+    frame["event_date"] = pd.to_datetime(frame["event_date"], errors="coerce")
+    today = pd.Timestamp.today().normalize()
+    frame = frame[
+        frame["event_date"].between(
+            today - pd.Timedelta(days=10),
+            today + pd.Timedelta(days=400),
+        )
+    ].copy()
+    frame["event_date"] = frame["event_date"].dt.date.astype(str)
+
+    append_pit_csv(
+        EVENTS_FILE,
+        frame,
+        ("event_date", "asset", "event_type", "description", "source"),
+        ("event_date", "asset", "event_type"),
+    )
+
+
+# ============================================================
+# 6. AI Cycle proxies
+# ============================================================
+
+def conservative_release_timestamp(filed_date: pd.Timestamp) -> pd.Timestamp:
+    """Use 17:00 ET on the filing date when SEC accepted time is unavailable."""
+    local = (
+        pd.Timestamp(filed_date)
+        .tz_localize(None)
+        .normalize()
+        + pd.Timedelta(hours=17)
+    ).tz_localize("America/New_York")
+    return local.tz_convert("UTC")
+
+
+def collect_ai_cycle() -> None:
+    fetched_at = utc_now()
+    rows: list[dict[str, Any]] = []
+
+    nvda_facts = fetch_company_facts(COMPANIES["NVDA"])
+    nvda_revenue = latest_period_yoy(
+        nvda_facts,
+        REVENUE_CONCEPTS,
+        min_duration_days=70,
+        max_duration_days=120,
+    )
+    if nvda_revenue:
+        release = conservative_release_timestamp(nvda_revenue["filed"])
+        value = float(nvda_revenue["value"])
+        rows.append(
+            {
+                "observation_date": nvda_revenue["period_end"].date().isoformat(),
+                "release_timestamp": release.isoformat(),
+                "effective_trade_date": resolve_effective_trade_date(release),
+                "company": "NVDA",
+                "metric": "nvidia_revenue_yoy_proxy",
+                "value": round(value, 6),
+                "score": round(
+                    logistic_score(value, midpoint=25.0, scale=15.0, higher_is_better=True),
+                    4,
+                ),
+                "source": "SEC_XBRL_QUARTERLY_REVENUE",
+                "is_proxy": True,
+                "fetched_at": fetched_at.isoformat(),
+                "source_id": nvda_revenue["accession"],
+            }
+        )
+
+    capex_values: list[float] = []
+    capex_filings: list[pd.Timestamp] = []
+    capex_periods: list[pd.Timestamp] = []
+    capex_accessions: list[str] = []
+
+    for ticker in ("MSFT", "META", "GOOGL", "AMZN"):
+        try:
+            facts = fetch_company_facts(COMPANIES[ticker])
+            result = latest_period_yoy(
+                facts,
+                CAPEX_CONCEPTS,
+                min_duration_days=70,
+                max_duration_days=300,
+            )
+            if result is None:
+                LOGGER.warning("No comparable CapEx YoY fact for %s", ticker)
+                continue
+            capex_values.append(float(result["value"]))
+            capex_filings.append(pd.Timestamp(result["filed"]))
+            capex_periods.append(pd.Timestamp(result["period_end"]))
+            if result["accession"]:
+                capex_accessions.append(str(result["accession"]))
+        except Exception:
+            LOGGER.exception("Unable to collect CapEx YoY for %s", ticker)
+
+    if capex_values:
+        value = float(np.mean(capex_values))
+        filed = max(capex_filings)
+        release = conservative_release_timestamp(filed)
+        rows.append(
+            {
+                "observation_date": max(capex_periods).date().isoformat(),
+                "release_timestamp": release.isoformat(),
+                "effective_trade_date": resolve_effective_trade_date(release),
+                "company": "MSFT_META_GOOGL_AMZN",
+                "metric": "hyperscaler_capex_yoy",
+                "value": round(value, 6),
+                "score": round(
+                    logistic_score(value, midpoint=20.0, scale=12.0, higher_is_better=True),
+                    4,
+                ),
+                "source": "SEC_XBRL_YTD_CAPEX_PROXY",
+                "is_proxy": True,
+                "fetched_at": fetched_at.isoformat(),
+                "source_id": ",".join(sorted(set(capex_accessions))),
+            }
+        )
+
+    if not rows:
+        raise RuntimeError("No usable AI Cycle proxy rows were collected")
+
+    append_pit_csv(
+        AI_CYCLE_FILE,
+        pd.DataFrame(rows),
+        ("observation_date", "company", "metric"),
+        ("effective_trade_date", "company", "metric"),
+    )
+
+
 def main() -> None:
-    collect_sec_valuation()
+    validate_environment()
+
+    results = {
+        "SEC Valuation": run_safely("SEC Valuation", collect_sec_valuation),
+        "GDPNow": run_safely("GDPNow", collect_gdpnow),
+        "Cboe Put/Call": run_safely("Cboe Put/Call", collect_cboe_put_call),
+        "CFTC": run_safely("CFTC", collect_cftc_positioning),
+        "Events": run_safely("Events", collect_events),
+        "AI Cycle": run_safely("AI Cycle", collect_ai_cycle),
+    }
+
+    LOGGER.info("Collector summary: %s", results)
+
+    # Valuation remains required because the existing production engine uses it
+    # as the core free-data extension. Other sources are optional and are
+    # reflected through data-quality coverage if temporarily unavailable.
+    if not VALUATION_FILE.exists() or VALUATION_FILE.stat().st_size == 0:
+        raise RuntimeError("Required valuation_pit.csv was not generated")
 
 
 if __name__ == "__main__":
