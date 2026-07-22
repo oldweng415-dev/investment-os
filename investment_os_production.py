@@ -621,6 +621,68 @@ def align_event_series(events: pd.Series, calendar: pd.DatetimeIndex, max_age: i
     stale = a["update_date"].isna() | (age > max_age)
     return AlignedSeries(a["value"].where(~stale), a["update_date"], age, stale, source, is_proxy)
 
+def align_live_public_event(
+    events: pd.Series,
+    calendar: pd.DatetimeIndex,
+    max_age: int,
+    source: str,
+    cfg: Config,
+    is_proxy: bool = False,
+) -> pd.Series:
+    """
+    將事件資料依 effective_trade_date 對齊。
+
+    live_public：
+    最新報告使用 signal_date 收盤資料，
+    但實際適用於 decision_date，因此允許把
+    decision_date 已生效的最新資料映射到
+    最新 signal_date 報告。
+
+    不回填過去歷史日期。
+    """
+
+    signal_date = pd.Timestamp(
+        calendar.max()
+    ).tz_localize(None)
+
+    decision_date = next_nyse_session_after(
+        signal_date
+    )
+
+    extended_calendar = (
+        calendar.union(
+            pd.DatetimeIndex(
+                [decision_date]
+            )
+        )
+        .sort_values()
+    )
+
+    aligned = align_event_series(
+        events,
+        extended_calendar,
+        max_age,
+        source,
+        is_proxy,
+    ).value
+
+    if (
+        cfg.data_mode == "live_public"
+        and decision_date > signal_date
+    ):
+        decision_value = aligned.get(
+            decision_date
+        )
+
+        if pd.notna(decision_value):
+            aligned.loc[
+                signal_date
+            ] = decision_value
+
+    return aligned.reindex(
+        calendar
+    )
+
 
 def apply_staleness_rules(events: Dict[str, pd.Series], calendar: pd.DatetimeIndex, cfg: Config) -> Dict[str, AlignedSeries]:
     by_alias = {m["alias"]: m for m in cfg.fred_metadata.values()}
