@@ -1125,44 +1125,152 @@ def calculate_valuation(
     )
 
 
-def calculate_ai_cycle(calendar: pd.DatetimeIndex, cfg: Config, logger: logging.Logger) -> ModuleResult:
+def calculate_ai_cycle(
+    calendar: pd.DatetimeIndex,
+    cfg: Config,
+    logger: logging.Logger,
+) -> ModuleResult:
     blank = pd.Series(np.nan, index=calendar)
+
     if cfg.data_mode == "market_only":
-        return ModuleResult("ai_cycle", blank, pd.Series(0.0, index=calendar), pd.DataFrame(index=calendar), {}, False, ["disabled_in_market_only"], [], {})
-    required = {"observation_date", "release_timestamp", "effective_trade_date", "company", "metric", "value", "source", "is_proxy"}
-    frame = load_optional_csv(cfg.data_directory / "ai_cycle_pit.csv", required, logger)
+        return ModuleResult(
+            "ai_cycle",
+            blank,
+            pd.Series(0.0, index=calendar),
+            pd.DataFrame(index=calendar),
+            {},
+            False,
+            ["disabled_in_market_only"],
+            [],
+            {},
+        )
+
+    required = {
+        "observation_date",
+        "release_timestamp",
+        "effective_trade_date",
+        "company",
+        "metric",
+        "value",
+        "source",
+        "is_proxy",
+    }
+
+    frame = load_optional_csv(
+        cfg.data_directory / "ai_cycle_pit.csv",
+        required,
+        logger,
+    )
+
     if frame.empty:
         if cfg.data_mode == "strict_pit":
             raise RuntimeError("strict_pit requires ai_cycle_pit.csv")
-        return ModuleResult("ai_cycle", blank, pd.Series(0.0, index=calendar), pd.DataFrame(index=calendar), {}, False, ["ai_cycle_pit.csv"], [], {})
+
+        return ModuleResult(
+            "ai_cycle",
+            blank,
+            pd.Series(0.0, index=calendar),
+            pd.DataFrame(index=calendar),
+            {},
+            False,
+            ["ai_cycle_pit.csv"],
+            [],
+            {},
+        )
+
     weights0 = {
-         # NVIDIA 全公司營收 YoY，只能標示為 Proxy
-         "nvidia_revenue_yoy_proxy": 0.35,
-
-         # MSFT、META、GOOGL、AMZN CapEx YoY
-         "hyperscaler_capex_yoy": 0.45,
-
-         # 公司自訂揭露，沒有可靠資料時維持 unavailable
-         "tsmc_hpc_growth": 0.10,
-         "micron_dc_hbm_score": 0.10,
+        "nvidia_revenue_yoy_proxy": 0.35,
+        "hyperscaler_capex_yoy": 0.45,
+        "tsmc_hpc_growth": 0.10,
+        "micron_dc_hbm_score": 0.10,
     }
-    comps, raw, proxies = {}, {}, []
+
+    components: Dict[str, pd.Series] = {}
+    raw: Dict[str, pd.Series] = {}
+    proxies: List[bool] = []
+
     for metric in weights0:
-        x = frame[frame["metric"].astype(str).str.lower() == metric]
-        if x.empty:
+        metric_rows = frame[
+            frame["metric"].astype(str).str.lower().eq(metric)
+        ].copy()
+
+        if metric_rows.empty:
             continue
-        event = event_metric_score(frame, metric, True, "quarterly")
-        raw_event = x.sort_values(["effective_trade_date", "release_timestamp"]).groupby("effective_trade_date")["value"].last().dropna()
-        proxy = bool(x["is_proxy"].fillna(False).any())
+
+        score_event = event_metric_score(
+            frame,
+            metric,
+            True,
+            "quarterly",
+        )
+
+        raw_event = (
+            metric_rows
+            .sort_values(["effective_trade_date", "release_timestamp"])
+            .groupby("effective_trade_date")["value"]
+            .last()
+            .dropna()
+        )
+
+        proxy = bool(
+            metric_rows["is_proxy"].fillna(False).any()
+        )
         proxies.append(proxy)
-        comps[metric] = align_event_series(event, calendar, cfg.max_staleness_days["quarterly_fundamental"], f"ai:{metric}", proxy).value
-        raw[metric] = align_event_series(raw_event, calendar, cfg.max_staleness_days["quarterly_fundamental"], f"ai_raw:{metric}", proxy).value
-    if not comps:
-        return ModuleResult("ai_cycle", blank, pd.Series(0.0, index=calendar), pd.DataFrame(index=calendar), {}, False, ["usable_ai_metrics"], [], {})
-    frame2 = pd.DataFrame(comps, index=calendar)
-    weights = {k: weights0[k] for k in frame2.columns}
-    score, coverage = weighted_frame(frame2, weights)
-    return ModuleResult("ai_cycle", score, coverage, frame2, weights, any(proxies), [k for k in weights0 if k not in frame2], [], raw)
+
+        components[metric] = align_live_public_event(
+            score_event,
+            calendar,
+            cfg.max_staleness_days["quarterly_fundamental"],
+            f"ai:{metric}",
+            cfg,
+            proxy,
+        )
+
+        raw[metric] = align_live_public_event(
+            raw_event,
+            calendar,
+            cfg.max_staleness_days["quarterly_fundamental"],
+            f"ai_raw:{metric}",
+            cfg,
+            proxy,
+        )
+
+    if not components:
+        return ModuleResult(
+            "ai_cycle",
+            blank,
+            pd.Series(0.0, index=calendar),
+            pd.DataFrame(index=calendar),
+            weights0,
+            False,
+            ["usable_ai_metrics"],
+            [],
+            {},
+        )
+
+    component_frame = pd.DataFrame(
+        components,
+        index=calendar,
+    )
+
+    # Use the full configured weights so missing TSMC/Micron inputs
+    # reduce coverage instead of being silently renormalized to 100%.
+    score, coverage = weighted_frame(
+        component_frame,
+        weights0,
+    )
+
+    return ModuleResult(
+        "ai_cycle",
+        score,
+        coverage,
+        component_frame,
+        weights0,
+        any(proxies),
+        [key for key in weights0 if key not in component_frame.columns],
+        [],
+        raw,
+    )
 
 
 def load_positioning_pit(
@@ -1197,37 +1305,27 @@ def load_positioning_pit(
         "equity_put_call": {
             "high_good": True,
             "frequency": "daily",
-            "max_age": cfg.max_staleness_days[
-                "daily_market_indicator"
-            ],
+            "max_age": cfg.max_staleness_days["daily_market_indicator"],
         },
         "cftc_positioning": {
             "high_good": False,
             "frequency": "weekly",
-            "max_age": cfg.max_staleness_days[
-                "weekly_macro"
-            ],
+            "max_age": cfg.max_staleness_days["weekly_macro"],
         },
         "etf_primary_flow": {
             "high_good": False,
             "frequency": "daily",
-            "max_age": cfg.max_staleness_days[
-                "daily_market_indicator"
-            ],
+            "max_age": cfg.max_staleness_days["daily_market_indicator"],
         },
         "iv30": {
             "high_good": True,
             "frequency": "daily",
-            "max_age": cfg.max_staleness_days[
-                "daily_market_indicator"
-            ],
+            "max_age": cfg.max_staleness_days["daily_market_indicator"],
         },
         "rv20": {
             "high_good": True,
             "frequency": "daily",
-            "max_age": cfg.max_staleness_days[
-                "daily_market_indicator"
-            ],
+            "max_age": cfg.max_staleness_days["daily_market_indicator"],
         },
     }
 
@@ -1236,42 +1334,36 @@ def load_positioning_pit(
     proxies: Dict[str, bool] = {}
 
     for metric, settings in metric_config.items():
-        x = frame[
-            frame["metric"]
-            .astype(str)
-            .str.lower()
-            .eq(metric)
+        metric_rows = frame[
+            frame["metric"].astype(str).str.lower().eq(metric)
         ].copy()
 
-        if x.empty:
+        if metric_rows.empty:
             continue
 
-        x = x.sort_values(
-            [
-                "effective_trade_date",
-                "release_timestamp",
-            ]
+        metric_rows = metric_rows.sort_values(
+            ["effective_trade_date", "release_timestamp"]
         )
 
         raw_event = (
-            x.groupby("effective_trade_date")["value"]
+            metric_rows
+            .groupby("effective_trade_date")["value"]
             .last()
             .dropna()
         )
 
         proxy = bool(
-            x["is_proxy"]
-            .fillna(False)
-            .any()
+            metric_rows["is_proxy"].fillna(False).any()
         )
 
-        raw[metric] = align_event_series(
+        raw[metric] = align_live_public_event(
             raw_event,
             calendar,
             settings["max_age"],
             f"positioning_raw:{metric}",
+            cfg,
             proxy,
-        ).value
+        )
 
         if metric not in {"iv30", "rv20"}:
             score_event = event_metric_score(
@@ -1281,30 +1373,88 @@ def load_positioning_pit(
                 settings["frequency"],
             )
 
-            scores[metric] = align_event_series(
+            scores[metric] = align_live_public_event(
                 score_event,
                 calendar,
                 settings["max_age"],
                 f"positioning:{metric}",
+                cfg,
                 proxy,
-            ).value
+            )
 
         proxies[metric] = proxy
 
     return scores, raw, proxies
 
 
-def load_nowcast(calendar: pd.DatetimeIndex, cfg: Config, logger: logging.Logger) -> Optional[pd.Series]:
-    required = {"observation_date", "release_timestamp", "effective_trade_date", "metric", "value", "source", "is_proxy"}
-    frame = load_optional_csv(cfg.data_directory / "macro_nowcast_pit.csv", required, logger)
+def load_nowcast(
+    calendar: pd.DatetimeIndex,
+    cfg: Config,
+    logger: logging.Logger,
+) -> Optional[pd.Series]:
+    required = {
+        "observation_date",
+        "release_timestamp",
+        "effective_trade_date",
+        "metric",
+        "value",
+        "source",
+        "is_proxy",
+    }
+
+    frame = load_optional_csv(
+        cfg.data_directory / "macro_nowcast_pit.csv",
+        required,
+        logger,
+    )
+
     if frame.empty:
         return None
-    series = []
-    for metric in frame["metric"].dropna().astype(str).str.lower().unique():
-        event = event_metric_score(frame, metric, True, "weekly")
-        if not event.empty:
-            series.append(align_event_series(event, calendar, cfg.max_staleness_days["weekly_macro"], f"nowcast:{metric}", True).value)
-    return None if not series else pd.concat(series, axis=1).mean(axis=1, skipna=True)
+
+    series: List[pd.Series] = []
+
+    for metric in (
+        frame["metric"]
+        .dropna()
+        .astype(str)
+        .str.lower()
+        .unique()
+    ):
+        event = event_metric_score(
+            frame,
+            metric,
+            True,
+            "weekly",
+        )
+
+        if event.empty:
+            continue
+
+        metric_rows = frame[
+            frame["metric"].astype(str).str.lower().eq(metric)
+        ]
+        proxy = bool(
+            metric_rows["is_proxy"].fillna(False).any()
+        )
+
+        series.append(
+            align_live_public_event(
+                event,
+                calendar,
+                cfg.max_staleness_days["weekly_macro"],
+                f"nowcast:{metric}",
+                cfg,
+                proxy,
+            )
+        )
+
+    if not series:
+        return None
+
+    return pd.concat(series, axis=1).mean(
+        axis=1,
+        skipna=True,
+    )
 
 
 # ============================================================
@@ -2027,12 +2177,46 @@ def load_events(
     return frame, complete
 
 
-def upcoming_events(events: pd.DataFrame, date: pd.Timestamp, calendar: pd.DatetimeIndex, n: int = 10) -> List[Dict[str, Any]]:
-    if events.empty: return []
-    future = calendar[calendar > date][:n]
-    if len(future) == 0: return []
-    x = events[(events["event_date"] > date) & (events["event_date"] <= future[-1])]
-    return x.to_dict("records")
+def upcoming_events(
+    events: pd.DataFrame,
+    date: pd.Timestamp,
+    calendar: pd.DatetimeIndex,
+    n: int = 10,
+) -> List[Dict[str, Any]]:
+    if events.empty:
+        return []
+
+    signal_date = pd.Timestamp(date).tz_localize(None)
+    nyse = mcal.get_calendar("NYSE")
+    schedule = nyse.schedule(
+        start_date=(signal_date + pd.Timedelta(days=1)).date(),
+        end_date=(signal_date + pd.Timedelta(days=45)).date(),
+    )
+
+    if schedule.empty:
+        return []
+
+    future_sessions = pd.DatetimeIndex(schedule.index)[:n]
+    if future_sessions.empty:
+        return []
+
+    last_date = pd.Timestamp(future_sessions[-1]).tz_localize(None)
+    event_dates = pd.to_datetime(
+        events["event_date"],
+        errors="coerce",
+    )
+
+    mask = (
+        (event_dates > signal_date)
+        & (event_dates <= last_date)
+    )
+
+    return (
+        events.loc[mask]
+        .assign(event_date=event_dates.loc[mask])
+        .sort_values("event_date")
+        .to_dict("records")
+    )
 
 
 def determine_cc(buy: float, risk: float, coverage: float, panic_bonus: float,
