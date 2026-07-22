@@ -26,7 +26,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     permissions:
       contents: write
@@ -42,6 +42,8 @@ jobs:
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
       SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
       CFTC_APP_TOKEN: ${{ secrets.CFTC_APP_TOKEN }}
+      OPTIONS_UNDERLYING: QQQ
+      OPTIONS_TARGET_DTE: "30"
 
     steps:
       # ======================================================
@@ -373,6 +375,175 @@ jobs:
                           "Too many FOMC decision "
                           f"dates in one year: {per_year.to_dict()}"
                       )
+
+
+          valuation["release_timestamp"] = pd.to_datetime(
+              valuation["release_timestamp"],
+              errors="coerce",
+              utc=True,
+          )
+
+          latest_valuation = (
+              valuation.sort_values(
+                  "release_timestamp"
+              )
+              .iloc[-1]
+          )
+
+          latest_valuation_source = str(
+              latest_valuation.get(
+                  "source",
+                  "",
+              )
+          ).upper()
+
+          if "TTM" not in latest_valuation_source:
+              print(
+                  "WARNING: latest valuation row is not yet "
+                  "the SEC TTM implementation:",
+                  latest_valuation_source,
+              )
+
+          nowcast_path = Path(
+              "data/macro_nowcast_pit.csv"
+          )
+
+          if nowcast_path.exists():
+              nowcast = pd.read_csv(
+                  nowcast_path
+              )
+
+              nowcast["release_timestamp"] = pd.to_datetime(
+                  nowcast["release_timestamp"],
+                  errors="coerce",
+                  utc=True,
+              )
+
+              if nowcast[
+                  "release_timestamp"
+              ].isna().all():
+                  raise AssertionError(
+                      "GDPNow has no usable vintage timestamps"
+                  )
+
+          if positioning_path.exists():
+              positioning_metrics = set(
+                  positioning["metric"]
+                  .dropna()
+                  .astype(str)
+                  .str.lower()
+              )
+
+              for expected_metric in (
+                  "cftc_positioning",
+                  "iv30",
+                  "rv20",
+              ):
+                  if expected_metric not in positioning_metrics:
+                      print(
+                          "WARNING: positioning metric unavailable:",
+                          expected_metric,
+                      )
+
+              if {
+                  "iv30",
+                  "rv20",
+              }.issubset(positioning_metrics):
+                  latest_volatility = (
+                      positioning[
+                          positioning["metric"]
+                          .astype(str)
+                          .str.lower()
+                          .isin(
+                              [
+                                  "iv30",
+                                  "rv20",
+                              ]
+                          )
+                      ]
+                      .sort_values(
+                          "release_timestamp"
+                      )
+                      .groupby(
+                          "metric"
+                      )
+                      .tail(1)
+                  )
+
+                  volatility_values = pd.to_numeric(
+                      latest_volatility["value"],
+                      errors="coerce",
+                  )
+
+                  if (
+                      volatility_values.isna().any()
+                      or not volatility_values.between(
+                          0,
+                          500,
+                          inclusive="neither",
+                      ).all()
+                  ):
+                      raise AssertionError(
+                          "IV30/RV20 values are outside "
+                          "plausible bounds"
+                      )
+
+          if events_path.exists():
+              event_sources = set(
+                  events["source"]
+                  .dropna()
+                  .astype(str)
+                  .str.upper()
+              )
+
+              if "BEA_RELEASE_SCHEDULE" not in event_sources:
+                  print(
+                      "WARNING: BEA release schedule unavailable; "
+                      "event check should report partial status."
+                  )
+
+          ai_path = Path(
+              "data/ai_cycle_pit.csv"
+          )
+
+          if ai_path.exists():
+              ai = pd.read_csv(
+                  ai_path
+              )
+
+              latest_ai = (
+                  ai.sort_values(
+                      "release_timestamp"
+                  )
+                  .groupby(
+                      "metric"
+                  )
+                  .tail(1)
+              )
+
+              ai_scores = pd.to_numeric(
+                  latest_ai["score"],
+                  errors="coerce",
+              )
+
+              if (
+                  ai_scores.dropna() > 99.9
+              ).any():
+                  print(
+                      "WARNING: AI proxy score remains "
+                      "extremely saturated:",
+                      latest_ai[
+                          [
+                              "metric",
+                              "value",
+                              "score",
+                          ]
+                      ].to_dict(
+                          "records"
+                      ),
+                  )
+
+          print("Nine-item collector validation passed.")
 
           print("Put/Call and event-date validation passed.")
           print("Free public PIT validation completed.")
@@ -793,6 +964,112 @@ jobs:
               "Carry Score:",
               carry_score,
           )
+
+
+          event_calendar = data_quality.get(
+              "event_calendar",
+              {},
+          )
+
+          if not isinstance(
+              event_calendar,
+              dict,
+          ):
+              raise AssertionError(
+                  "data_quality.event_calendar must be an object"
+              )
+
+          if event_calendar.get(
+              "status"
+          ) not in {
+              "complete",
+              "partial",
+              "unavailable",
+          }:
+              raise AssertionError(
+                  "Invalid event calendar status: "
+                  f"{event_calendar}"
+              )
+
+          covered_call = payload.get(
+              "covered_call",
+              {},
+          )
+
+          required_cc_fields = {
+              "status",
+              "reason",
+              "options_data_available",
+              "iv30_pct",
+              "rv20_pct",
+              "iv_minus_rv_pct_points",
+              "strike_recommendation_available",
+          }
+
+          missing_cc_fields = (
+              required_cc_fields
+              - set(
+                  covered_call
+              )
+          )
+
+          if missing_cc_fields:
+              raise AssertionError(
+                  "covered_call missing fields: "
+                  f"{sorted(missing_cc_fields)}"
+              )
+
+          if covered_call.get(
+              "options_data_available"
+          ):
+              iv30 = covered_call.get(
+                  "iv30_pct"
+              )
+
+              rv20 = covered_call.get(
+                  "rv20_pct"
+              )
+
+              if (
+                  iv30 is None
+                  or rv20 is None
+                  or not 0 < iv30 < 500
+                  or not 0 < rv20 < 500
+              ):
+                  raise AssertionError(
+                      "Options data flag is true but "
+                      "IV30/RV20 are invalid"
+                  )
+
+              if covered_call.get(
+                  "strike_recommendation_available"
+              ):
+                  raise AssertionError(
+                      "Free yfinance proxy must not enable "
+                      "an exact strike recommendation"
+                  )
+
+          module_quality = payload.get(
+              "module_data_quality",
+              {},
+          )
+
+          for module_name in (
+              "market_regime",
+              "macro",
+              "liquidity",
+          ):
+              quality_record = module_quality.get(
+                  module_name,
+                  {},
+              )
+
+              if "missing_inputs" not in quality_record:
+                  raise AssertionError(
+                      f"{module_name} missing component diagnostics"
+                  )
+
+          print("Nine-item output validation passed.")
 
           print("JSON and CSV validation passed.")
           print("Signal date:", payload["signal_date"])
