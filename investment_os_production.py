@@ -42,8 +42,8 @@ class Config:
     max_staleness_days: Dict[str, int] = field(default_factory=lambda: {
         "market_price": 5,
         "daily_market_indicator": 7,
-        "weekly_macro": 14,
-        "monthly_macro": 45,
+        "weekly_macro": 21,
+        "monthly_macro": 75,
         "quarterly_fundamental": 150,
     })
 
@@ -317,6 +317,88 @@ def rolling_percentile(series: pd.Series, frequency: str,
     return s.rolling(window, min_periods=minp).apply(last_pct, raw=True)
 
 
+
+def rolling_percentile_with_fallback(
+    series: pd.Series,
+    frequency: str,
+    fallback_years: int = 1,
+) -> pd.Series:
+    """
+    Use the configured trailing percentile when sufficient history
+    exists. If a cache or newly added series has less than three years
+    but at least one full frequency-year, use an expanding percentile.
+
+    Both branches are point-in-time safe and never use future rows.
+    """
+
+    source = pd.to_numeric(
+        series,
+        errors="coerce",
+    ).sort_index()
+
+    primary = rolling_percentile(
+        source,
+        frequency,
+    )
+
+    periods = periods_per_year(
+        frequency
+    )
+
+    minimum = max(
+        20,
+        periods
+        * fallback_years,
+    )
+
+    def last_percentile(
+        values: np.ndarray,
+    ) -> float:
+        finite = values[
+            np.isfinite(
+                values
+            )
+        ]
+
+        if len(finite) == 0:
+            return np.nan
+
+        latest_value = finite[-1]
+
+        return (
+            100.0
+            * (
+                np.sum(
+                    finite
+                    < latest_value
+                )
+                + 0.5
+                * np.sum(
+                    finite
+                    == latest_value
+                )
+            )
+            / len(
+                finite
+            )
+        )
+
+    fallback = (
+        source
+        .expanding(
+            min_periods=minimum
+        )
+        .apply(
+            last_percentile,
+            raw=True,
+        )
+    )
+
+    return primary.combine_first(
+        fallback
+    )
+
+
 def inverse_percentile_score(pct: pd.Series) -> pd.Series:
     return (100.0 - pct).clip(0, 100)
 
@@ -365,6 +447,42 @@ def effective_weights(frame: pd.DataFrame, weights: Mapping[str, float]) -> Dict
 # ============================================================
 # 4. Market and FRED data
 # ============================================================
+
+
+def latest_component_gap_labels(
+    frame: pd.DataFrame,
+    expected_weights: Mapping[str, float],
+    date: pd.Timestamp,
+) -> List[str]:
+    """
+    Expose component-level score gaps that module coverage alone would
+    otherwise hide from the dashboard.
+    """
+
+    labels: List[str] = []
+
+    for component in expected_weights:
+        if component not in frame.columns:
+            labels.append(
+                f"{component}_score"
+            )
+            continue
+
+        value = frame[
+            component
+        ].get(
+            date
+        )
+
+        if pd.isna(
+            value
+        ):
+            labels.append(
+                f"{component}_score"
+            )
+
+    return labels
+
 
 def flatten_yfinance(raw: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     if raw.empty:
@@ -1090,15 +1208,33 @@ def calculate_valuation(
         index=calendar,
     )
 
-    weights = {
-        key: base_weights[key]
-        for key in component_frame.columns
-    }
-
     score, coverage = weighted_frame(
         component_frame,
-        weights,
+        base_weights,
     )
+
+    missing_inputs = [
+        key
+        for key in base_weights
+        if key not in component_frame.columns
+    ]
+
+    available_metrics = set(
+        frame["metric"]
+        .dropna()
+        .astype(str)
+        .str.lower()
+    )
+
+    if not {
+        "forward_pe",
+        "forward_earnings_yield",
+    }.intersection(
+        available_metrics
+    ):
+        missing_inputs.append(
+            "forward_estimates_unavailable"
+        )
 
     earnings_yield = raw.get(
         "earnings_yield"
@@ -1110,20 +1246,14 @@ def calculate_valuation(
             score,
             coverage,
             component_frame,
-            weights,
+            base_weights,
             any(proxies),
-            [
-                key
-                for key in base_weights
-                if key
-                not in component_frame
-            ],
+            sorted(set(missing_inputs)),
             [],
             raw,
         ),
         earnings_yield,
     )
-
 
 def calculate_ai_cycle(
     calendar: pd.DatetimeIndex,
@@ -1255,6 +1385,20 @@ def calculate_ai_cycle(
 
     # Use the full configured weights so missing TSMC/Micron inputs
     # reduce coverage instead of being silently renormalized to 100%.
+    missing_inputs = [
+        key
+        for key in weights0
+        if key not in component_frame.columns
+    ]
+
+    missing_inputs.extend(
+        latest_component_gap_labels(
+            component_frame,
+            weights0,
+            calendar[-1],
+        )
+    )
+
     score, coverage = weighted_frame(
         component_frame,
         weights0,
@@ -1267,11 +1411,10 @@ def calculate_ai_cycle(
         component_frame,
         weights0,
         any(proxies),
-        [key for key in weights0 if key not in component_frame.columns],
+        sorted(set(missing_inputs)),
         [],
         raw,
     )
-
 
 def load_positioning_pit(
     calendar: pd.DatetimeIndex,
@@ -1461,95 +1604,628 @@ def load_nowcast(
 # 6. Core modules
 # ============================================================
 
-def calculate_market_regime(close: pd.DataFrame, fred: Dict[str, AlignedSeries], cfg: Config) -> ModuleResult:
-    comps, raw, missing, stale = {}, {}, [], []
-    for ticker, name in (("SPY", "spy_trend"), ("QQQ", "qqq_trend"), ("SOXX", "soxx_trend")):
-        if ticker not in close:
-            missing.append(ticker)
+
+def calculate_market_regime(
+    close: pd.DataFrame,
+    fred: Dict[str, AlignedSeries],
+    cfg: Config,
+) -> ModuleResult:
+    components: Dict[str, pd.Series] = {}
+    raw: Dict[str, pd.Series] = {}
+    missing: List[str] = []
+    stale: List[str] = []
+
+    for ticker, name in (
+        ("SPY", "spy_trend"),
+        ("QQQ", "qqq_trend"),
+        ("SOXX", "soxx_trend"),
+    ):
+        if (
+            ticker not in close.columns
+            or close[ticker].dropna().empty
+        ):
+            missing.append(
+                ticker
+            )
             continue
-        distance = close[ticker] / close[ticker].rolling(200, min_periods=200).mean() - 1
-        distance = ewma_smooth(winsorize_series(distance, "daily"), 5)
-        comps[name] = rolling_percentile(distance, "daily")
-        raw[f"{name}_distance"] = distance
-    breadth_tickers = [x for x in ("SPY", "QQQ", "SOXX", "IWM", "MDY", "SMH") if x in close]
+
+        moving_average = (
+            close[ticker]
+            .rolling(
+                200,
+                min_periods=200,
+            )
+            .mean()
+        )
+
+        distance = (
+            close[ticker]
+            / moving_average
+            - 1.0
+        )
+
+        distance = ewma_smooth(
+            winsorize_series(
+                distance,
+                "daily",
+            ),
+            5,
+        )
+
+        components[
+            name
+        ] = rolling_percentile_with_fallback(
+            distance,
+            "daily",
+        )
+
+        raw[
+            f"{name}_distance"
+        ] = distance
+
+    breadth_tickers = [
+        ticker
+        for ticker in (
+            "SPY",
+            "QQQ",
+            "SOXX",
+            "IWM",
+            "MDY",
+            "SMH",
+        )
+        if (
+            ticker in close.columns
+            and not close[
+                ticker
+            ].dropna().empty
+        )
+    ]
+
     if breadth_tickers:
-        flags = pd.DataFrame({x: (close[x] > close[x].rolling(200, min_periods=200).mean()).astype(float).where(close[x].rolling(200, min_periods=200).mean().notna()) for x in breadth_tickers})
-        breadth = ewma_smooth(flags.mean(axis=1, skipna=True) * 100, 5)
-        comps["breadth"] = breadth
-        raw["breadth_score"] = breadth
+        flags: Dict[str, pd.Series] = {}
+
+        for ticker in breadth_tickers:
+            moving_average = (
+                close[ticker]
+                .rolling(
+                    200,
+                    min_periods=200,
+                )
+                .mean()
+            )
+
+            flags[ticker] = (
+                (
+                    close[ticker]
+                    > moving_average
+                )
+                .astype(float)
+                .where(
+                    moving_average.notna()
+                )
+            )
+
+        breadth = ewma_smooth(
+            pd.DataFrame(
+                flags
+            )
+            .mean(
+                axis=1,
+                skipna=True,
+            )
+            * 100.0,
+            5,
+        )
+
+        components[
+            "breadth"
+        ] = breadth
+
+        raw[
+            "breadth_score"
+        ] = breadth
     else:
-        missing.append("breadth_proxy")
-    hy = fred.get("hy_oas")
-    if hy is None or hy.value.dropna().empty:
-        missing.append("BAMLH0A0HYM2")
+        missing.append(
+            "breadth_proxy"
+        )
+
+    high_yield = fred.get(
+        "hy_oas"
+    )
+
+    if (
+        high_yield is None
+        or high_yield.value.dropna().empty
+    ):
+        missing.append(
+            "BAMLH0A0HYM2"
+        )
     else:
-        smooth = ewma_smooth(winsorize_series(hy.value, "daily"), 5)
-        pct = rolling_percentile(smooth, "daily")
-        comps["credit"] = inverse_percentile_score(pct)
-        raw["hy_oas"] = hy.value
-        raw["hy_oas_percentile"] = pct
-        if bool(hy.stale.iloc[-1]):
-            stale.append("BAMLH0A0HYM2")
-    frame = pd.DataFrame(comps, index=close.index)
-    score, coverage = weighted_frame(frame, cfg.market_regime_weights)
-    return ModuleResult("market_regime", score, coverage, frame, cfg.market_regime_weights, True, missing, stale, raw)
+        smooth = ewma_smooth(
+            winsorize_series(
+                high_yield.value,
+                "daily",
+            ),
+            5,
+        )
+
+        percentile = (
+            rolling_percentile_with_fallback(
+                smooth,
+                "daily",
+            )
+        )
+
+        components[
+            "credit"
+        ] = inverse_percentile_score(
+            percentile
+        )
+
+        raw[
+            "hy_oas"
+        ] = high_yield.value
+
+        raw[
+            "hy_oas_percentile"
+        ] = percentile
+
+        if (
+            len(
+                high_yield.stale
+            ) > 0
+            and bool(
+                high_yield.stale.iloc[-1]
+            )
+        ):
+            stale.append(
+                "BAMLH0A0HYM2"
+            )
+
+    component_frame = pd.DataFrame(
+        components,
+        index=close.index,
+    )
+
+    missing.extend(
+        latest_component_gap_labels(
+            component_frame,
+            cfg.market_regime_weights,
+            close.index[-1],
+        )
+    )
+
+    score, coverage = weighted_frame(
+        component_frame,
+        cfg.market_regime_weights,
+    )
+
+    return ModuleResult(
+        "market_regime",
+        score,
+        coverage,
+        component_frame,
+        cfg.market_regime_weights,
+        True,
+        sorted(
+            set(
+                missing
+            )
+        ),
+        sorted(
+            set(
+                stale
+            )
+        ),
+        raw,
+    )
 
 
-def calculate_macro(calendar: pd.DatetimeIndex, events: Dict[str, pd.Series], aligned: Dict[str, AlignedSeries], nowcast: Optional[pd.Series], cfg: Config) -> ModuleResult:
-    comps, raw, missing, stale = {}, {}, [], []
-    pce = events.get("core_pce_index", pd.Series(dtype=float)).dropna()
-    if not pce.empty:
-        annualized = ((pce / pce.shift(3)) ** 4 - 1) * 100
-        deviation = (annualized - 2).abs()
-        score_event = inverse_percentile_score(rolling_percentile(deviation, "monthly"))
-        comps["core_pce"] = align_event_series(score_event.dropna(), calendar, cfg.max_staleness_days["monthly_macro"], "core_pce").value
-        raw["core_pce_3m_annualized"] = align_event_series(annualized.dropna(), calendar, cfg.max_staleness_days["monthly_macro"], "core_pce_raw").value
+def calculate_macro(
+    calendar: pd.DatetimeIndex,
+    events: Dict[str, pd.Series],
+    aligned: Dict[str, AlignedSeries],
+    nowcast: Optional[pd.Series],
+    cfg: Config,
+) -> ModuleResult:
+    components: Dict[str, pd.Series] = {}
+    raw: Dict[str, pd.Series] = {}
+    missing: List[str] = []
+    stale: List[str] = []
+
+    core_pce = (
+        events.get(
+            "core_pce_index",
+            pd.Series(
+                dtype=float
+            ),
+        )
+        .dropna()
+    )
+
+    if not core_pce.empty:
+        annualized = (
+            (
+                core_pce
+                / core_pce.shift(3)
+            )
+            ** 4
+            - 1.0
+        ) * 100.0
+
+        deviation = (
+            annualized
+            - 2.0
+        ).abs()
+
+        score_event = (
+            inverse_percentile_score(
+                rolling_percentile_with_fallback(
+                    deviation,
+                    "monthly",
+                )
+            )
+        )
+
+        components[
+            "core_pce"
+        ] = align_event_series(
+            score_event.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "monthly_macro"
+            ],
+            "core_pce",
+        ).value
+
+        raw[
+            "core_pce_3m_annualized"
+        ] = align_event_series(
+            annualized.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "monthly_macro"
+            ],
+            "core_pce_raw",
+        ).value
     else:
-        missing.append("PCEPILFE")
-    unrate = events.get("unrate", pd.Series(dtype=float)).dropna()
-    if not unrate.empty:
-        avg3 = unrate.rolling(3, min_periods=3).mean()
-        gap = avg3 - avg3.rolling(12, min_periods=12).min()
-        score_event = inverse_percentile_score(rolling_percentile(gap, "monthly"))
-        comps["employment_gap"] = align_event_series(score_event.dropna(), calendar, cfg.max_staleness_days["monthly_macro"], "sahm_gap").value
-        raw["sahm_style_gap"] = align_event_series(gap.dropna(), calendar, cfg.max_staleness_days["monthly_macro"], "sahm_gap_raw").value
+        missing.append(
+            "PCEPILFE"
+        )
+
+    unemployment = (
+        events.get(
+            "unrate",
+            pd.Series(
+                dtype=float
+            ),
+        )
+        .dropna()
+    )
+
+    if not unemployment.empty:
+        average_3m = (
+            unemployment
+            .rolling(
+                3,
+                min_periods=3,
+            )
+            .mean()
+        )
+
+        gap = (
+            average_3m
+            - average_3m
+            .rolling(
+                12,
+                min_periods=12,
+            )
+            .min()
+        )
+
+        score_event = (
+            inverse_percentile_score(
+                rolling_percentile_with_fallback(
+                    gap,
+                    "monthly",
+                )
+            )
+        )
+
+        components[
+            "employment_gap"
+        ] = align_event_series(
+            score_event.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "monthly_macro"
+            ],
+            "sahm_gap",
+        ).value
+
+        raw[
+            "sahm_style_gap"
+        ] = align_event_series(
+            gap.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "monthly_macro"
+            ],
+            "sahm_gap_raw",
+        ).value
     else:
-        missing.append("UNRATE")
-    claims = events.get("claims", pd.Series(dtype=float)).dropna()  # real weekly observations only
+        missing.append(
+            "UNRATE"
+        )
+
+    claims = (
+        events.get(
+            "claims",
+            pd.Series(
+                dtype=float
+            ),
+        )
+        .dropna()
+    )
+
     if not claims.empty:
-        ratio = claims.rolling(4, min_periods=4).mean() / claims.rolling(26, min_periods=26).mean().replace(0, np.nan)
-        score_event = inverse_percentile_score(rolling_percentile(ratio, "weekly"))
-        comps["initial_claims"] = align_event_series(score_event.dropna(), calendar, cfg.max_staleness_days["weekly_macro"], "claims_ratio").value
-        raw["claims_4w_26w_ratio"] = align_event_series(ratio.dropna(), calendar, cfg.max_staleness_days["weekly_macro"], "claims_ratio_raw").value
-    else:
-        missing.append("ICSA")
-    c3 = events.get("t10y3m", pd.Series(dtype=float)).dropna()
-    c2 = events.get("t10y2y", pd.Series(dtype=float)).dropna()
-    if not c3.empty:
-        inversion = (-c3).clip(lower=0)
-        prior_inv = c3.rolling(126, min_periods=40).min() < 0
-        steepening = c3.diff(65).clip(lower=0).where(prior_inv, 0)
-        stress = inversion + .75 * steepening
-        if not c2.empty:
-            stress = .75 * stress + .25 * (-c2.reindex(c3.index).ffill(limit=7)).clip(lower=0)
-        else:
-            missing.append("T10Y2Y")
-        score_event = inverse_percentile_score(rolling_percentile(stress, "daily"))
-        comps["yield_curve"] = align_event_series(score_event.dropna(), calendar, cfg.max_staleness_days["daily_market_indicator"], "curve_stress", True).value
-        raw["yield_curve_stress"] = align_event_series(stress.dropna(), calendar, cfg.max_staleness_days["daily_market_indicator"], "curve_stress_raw", True).value
-    else:
-        missing.append("T10Y3M")
-    if nowcast is not None:
-        comps["nowcast_or_pmi"] = nowcast
-    else:
-        missing.append("macro_nowcast_pit.csv")
-    for alias, sid in (("core_pce_index", "PCEPILFE"), ("unrate", "UNRATE"), ("claims", "ICSA"), ("t10y3m", "T10Y3M")):
-        if alias in aligned and bool(aligned[alias].stale.iloc[-1]):
-            stale.append(sid)
-    frame = pd.DataFrame(comps, index=calendar)
-    score, coverage = weighted_frame(frame, cfg.macro_weights)
-    return ModuleResult("macro", score, coverage, frame, cfg.macro_weights, True, missing, stale, raw)
+        ratio = (
+            claims
+            .rolling(
+                4,
+                min_periods=4,
+            )
+            .mean()
+            / claims
+            .rolling(
+                26,
+                min_periods=26,
+            )
+            .mean()
+            .replace(
+                0,
+                np.nan,
+            )
+        )
 
+        score_event = (
+            inverse_percentile_score(
+                rolling_percentile_with_fallback(
+                    ratio,
+                    "weekly",
+                )
+            )
+        )
+
+        components[
+            "initial_claims"
+        ] = align_event_series(
+            score_event.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "weekly_macro"
+            ],
+            "claims_ratio",
+        ).value
+
+        raw[
+            "claims_4w_26w_ratio"
+        ] = align_event_series(
+            ratio.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "weekly_macro"
+            ],
+            "claims_ratio_raw",
+        ).value
+    else:
+        missing.append(
+            "ICSA"
+        )
+
+    curve_3m = (
+        events.get(
+            "t10y3m",
+            pd.Series(
+                dtype=float
+            ),
+        )
+        .dropna()
+    )
+
+    curve_2y = (
+        events.get(
+            "t10y2y",
+            pd.Series(
+                dtype=float
+            ),
+        )
+        .dropna()
+    )
+
+    if not curve_3m.empty:
+        inversion = (
+            -curve_3m
+        ).clip(
+            lower=0
+        )
+
+        prior_inversion = (
+            curve_3m
+            .rolling(
+                126,
+                min_periods=40,
+            )
+            .min()
+            < 0
+        )
+
+        steepening = (
+            curve_3m
+            .diff(65)
+            .clip(
+                lower=0
+            )
+            .where(
+                prior_inversion,
+                0,
+            )
+        )
+
+        stress = (
+            inversion
+            + 0.75
+            * steepening
+        )
+
+        if not curve_2y.empty:
+            stress = (
+                0.75
+                * stress
+                + 0.25
+                * (
+                    -curve_2y
+                    .reindex(
+                        curve_3m.index
+                    )
+                    .ffill(
+                        limit=7
+                    )
+                )
+                .clip(
+                    lower=0
+                )
+            )
+        else:
+            missing.append(
+                "T10Y2Y"
+            )
+
+        score_event = (
+            inverse_percentile_score(
+                rolling_percentile_with_fallback(
+                    stress,
+                    "daily",
+                )
+            )
+        )
+
+        components[
+            "yield_curve"
+        ] = align_event_series(
+            score_event.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "daily_market_indicator"
+            ],
+            "curve_stress",
+            True,
+        ).value
+
+        raw[
+            "yield_curve_stress"
+        ] = align_event_series(
+            stress.dropna(),
+            calendar,
+            cfg.max_staleness_days[
+                "daily_market_indicator"
+            ],
+            "curve_stress_raw",
+            True,
+        ).value
+    else:
+        missing.append(
+            "T10Y3M"
+        )
+
+    if (
+        nowcast is not None
+        and not nowcast.dropna().empty
+    ):
+        components[
+            "nowcast_or_pmi"
+        ] = nowcast
+
+        raw[
+            "gdpnow_score"
+        ] = nowcast
+    else:
+        missing.append(
+            "macro_nowcast_pit.csv"
+        )
+
+    for alias, series_id in (
+        (
+            "core_pce_index",
+            "PCEPILFE",
+        ),
+        (
+            "unrate",
+            "UNRATE",
+        ),
+        (
+            "claims",
+            "ICSA",
+        ),
+        (
+            "t10y3m",
+            "T10Y3M",
+        ),
+    ):
+        item = aligned.get(
+            alias
+        )
+
+        if (
+            item is not None
+            and len(
+                item.stale
+            ) > 0
+            and bool(
+                item.stale.iloc[-1]
+            )
+        ):
+            stale.append(
+                series_id
+            )
+
+    component_frame = pd.DataFrame(
+        components,
+        index=calendar,
+    )
+
+    missing.extend(
+        latest_component_gap_labels(
+            component_frame,
+            cfg.macro_weights,
+            calendar[-1],
+        )
+    )
+
+    score, coverage = weighted_frame(
+        component_frame,
+        cfg.macro_weights,
+    )
+
+    return ModuleResult(
+        "macro",
+        score,
+        coverage,
+        component_frame,
+        cfg.macro_weights,
+        True,
+        sorted(
+            set(
+                missing
+            )
+        ),
+        sorted(
+            set(
+                stale
+            )
+        ),
+        raw,
+    )
 
 def calculate_liquidity(
     calendar: pd.DatetimeIndex,
@@ -1625,7 +2301,7 @@ def calculate_liquidity(
         )
 
         nfl_percentile = (
-            rolling_percentile(
+            rolling_percentile_with_fallback(
                 winsorize_series(
                     nfl_change_13w,
                     frequency="daily",
@@ -1692,7 +2368,7 @@ def calculate_liquidity(
         )
 
         reserve_score = (
-            rolling_percentile(
+            rolling_percentile_with_fallback(
                 winsorize_series(
                     reserve_change_13w,
                     frequency="weekly",
@@ -1739,7 +2415,7 @@ def calculate_liquidity(
 
         rrp_score = (
             inverse_percentile_score(
-                rolling_percentile(
+                rolling_percentile_with_fallback(
                     winsorize_series(
                         rrp_change_13w,
                         frequency="daily",
@@ -1782,7 +2458,7 @@ def calculate_liquidity(
 
         tga_score = (
             inverse_percentile_score(
-                rolling_percentile(
+                rolling_percentile_with_fallback(
                     winsorize_series(
                         tga_change_13w,
                         frequency="weekly",
@@ -1824,7 +2500,7 @@ def calculate_liquidity(
         )
 
         real_m2_score = (
-            rolling_percentile(
+            rolling_percentile_with_fallback(
                 winsorize_series(
                     real_m2_yoy,
                     frequency="monthly",
@@ -1881,6 +2557,14 @@ def calculate_liquidity(
         index=calendar,
     )
 
+    missing.extend(
+        latest_component_gap_labels(
+            component_frame,
+            cfg.liquidity_weights,
+            calendar[-1],
+        )
+    )
+
     score, coverage = weighted_frame(
         component_frame,
         cfg.liquidity_weights,
@@ -1899,46 +2583,306 @@ def calculate_liquidity(
     )
 
 
-def calculate_positioning(close: pd.DataFrame, ext_scores: Dict[str, pd.Series], ext_raw: Dict[str, pd.Series], proxies: Dict[str, bool], cfg: Config) -> ModuleResult:
-    comps, raw, missing = {}, {}, []
-    if "^VIX" in close:
-        vix = ewma_smooth(winsorize_series(close["^VIX"], "daily"), 5)
-        pct = rolling_percentile(vix, "daily")
-        comps["vix_percentile"], raw["vix"], raw["vix_percentile"] = pct, close["^VIX"], pct
-    else:
-        missing.append("^VIX")
-    if "^VIX" in close and "^VIX3M" in close:
-        ratio = close["^VIX"] / close["^VIX3M"].replace(0, np.nan)
-        comps["vix_term_structure"] = logistic_score(ratio, 1.0, .035, increasing=False)
-        raw["vix3m"], raw["vix_term_ratio"], raw["vix_backwardation"] = close["^VIX3M"], ratio, (ratio > 1).astype(float)
-    else:
-        missing.append("^VIX3M")
-    if "^SKEW" in close:
-        skew = ewma_smooth(winsorize_series(close["^SKEW"], "daily"), 5)
-        comps["skew"] = rolling_percentile(skew, "daily")
-        raw["skew"], raw["skew_percentile"] = close["^SKEW"], comps["skew"]
-    else:
-        missing.append("^SKEW")
-    if "^VVIX" in close:
-        vvix = ewma_smooth(winsorize_series(close["^VVIX"], "daily"), 5)
-        comps["vvix"] = rolling_percentile(vvix, "daily")
-        raw["vvix"], raw["vvix_percentile"] = close["^VVIX"], comps["vvix"]
-    else:
-        missing.append("^VVIX")
-    if "equity_put_call" in ext_scores:
-        comps["put_call"] = ext_scores["equity_put_call"]
-        raw["equity_put_call"] = ext_raw["equity_put_call"]
-    else:
-        missing.append("equity_put_call")
-    c = [ext_scores[x] for x in ("cftc_positioning", "etf_primary_flow") if x in ext_scores]
-    if c:
-        comps["cftc_or_flow"] = pd.concat(c, axis=1).mean(axis=1, skipna=True)
-    else:
-        missing.append("cftc_or_flow")
-    frame = pd.DataFrame(comps, index=close.index)
-    score, coverage = weighted_frame(frame, cfg.positioning_weights)
-    return ModuleResult("positioning", score, coverage, frame, cfg.positioning_weights, any(proxies.values()), missing, [], raw)
+def calculate_positioning(
+    close: pd.DataFrame,
+    ext_scores: Dict[str, pd.Series],
+    ext_raw: Dict[str, pd.Series],
+    proxies: Dict[str, bool],
+    cfg: Config,
+) -> ModuleResult:
+    components: Dict[str, pd.Series] = {}
+    raw: Dict[str, pd.Series] = {}
+    missing: List[str] = []
 
+    if (
+        "^VIX" in close.columns
+        and not close[
+            "^VIX"
+        ].dropna().empty
+    ):
+        vix = ewma_smooth(
+            winsorize_series(
+                close[
+                    "^VIX"
+                ],
+                "daily",
+            ),
+            5,
+        )
+
+        percentile = (
+            rolling_percentile_with_fallback(
+                vix,
+                "daily",
+            )
+        )
+
+        components[
+            "vix_percentile"
+        ] = percentile
+
+        raw[
+            "vix"
+        ] = close[
+            "^VIX"
+        ]
+
+        raw[
+            "vix_percentile"
+        ] = percentile
+    else:
+        missing.append(
+            "^VIX"
+        )
+
+    if (
+        "^VIX" in close.columns
+        and "^VIX3M" in close.columns
+        and not close[
+            "^VIX3M"
+        ].dropna().empty
+    ):
+        ratio = (
+            close[
+                "^VIX"
+            ]
+            / close[
+                "^VIX3M"
+            ].replace(
+                0,
+                np.nan,
+            )
+        )
+
+        components[
+            "vix_term_structure"
+        ] = logistic_score(
+            ratio,
+            1.0,
+            0.035,
+            increasing=False,
+        )
+
+        raw[
+            "vix3m"
+        ] = close[
+            "^VIX3M"
+        ]
+
+        raw[
+            "vix_term_ratio"
+        ] = ratio
+
+        raw[
+            "vix_backwardation"
+        ] = (
+            ratio
+            > 1.0
+        ).astype(float)
+    else:
+        missing.append(
+            "^VIX3M"
+        )
+
+    if (
+        "^SKEW" in close.columns
+        and not close[
+            "^SKEW"
+        ].dropna().empty
+    ):
+        skew = ewma_smooth(
+            winsorize_series(
+                close[
+                    "^SKEW"
+                ],
+                "daily",
+            ),
+            5,
+        )
+
+        components[
+            "skew"
+        ] = rolling_percentile_with_fallback(
+            skew,
+            "daily",
+        )
+
+        raw[
+            "skew"
+        ] = close[
+            "^SKEW"
+        ]
+
+        raw[
+            "skew_percentile"
+        ] = components[
+            "skew"
+        ]
+    else:
+        missing.append(
+            "^SKEW"
+        )
+
+    if (
+        "^VVIX" in close.columns
+        and not close[
+            "^VVIX"
+        ].dropna().empty
+    ):
+        vvix = ewma_smooth(
+            winsorize_series(
+                close[
+                    "^VVIX"
+                ],
+                "daily",
+            ),
+            5,
+        )
+
+        components[
+            "vvix"
+        ] = rolling_percentile_with_fallback(
+            vvix,
+            "daily",
+        )
+
+        raw[
+            "vvix"
+        ] = close[
+            "^VVIX"
+        ]
+
+        raw[
+            "vvix_percentile"
+        ] = components[
+            "vvix"
+        ]
+    else:
+        missing.append(
+            "^VVIX"
+        )
+
+    if "equity_put_call" in ext_scores:
+        components[
+            "put_call"
+        ] = ext_scores[
+            "equity_put_call"
+        ]
+
+        raw[
+            "equity_put_call"
+        ] = ext_raw[
+            "equity_put_call"
+        ]
+    else:
+        missing.append(
+            "equity_put_call"
+        )
+
+    positioning_sources = [
+        ext_scores[
+            metric
+        ]
+        for metric in (
+            "cftc_positioning",
+            "etf_primary_flow",
+        )
+        if metric in ext_scores
+    ]
+
+    if positioning_sources:
+        components[
+            "cftc_or_flow"
+        ] = (
+            pd.concat(
+                positioning_sources,
+                axis=1,
+            )
+            .mean(
+                axis=1,
+                skipna=True,
+            )
+        )
+
+        if (
+            "cftc_positioning"
+            in ext_raw
+        ):
+            raw[
+                "cftc_positioning"
+            ] = ext_raw[
+                "cftc_positioning"
+            ]
+    else:
+        missing.append(
+            "cftc_or_flow"
+        )
+
+    for metric in (
+        "iv30",
+        "rv20",
+    ):
+        if metric in ext_raw:
+            raw[
+                metric
+            ] = ext_raw[
+                metric
+            ]
+        else:
+            missing.append(
+                metric
+            )
+
+    if (
+        "iv30" in raw
+        and "rv20" in raw
+    ):
+        raw[
+            "iv_rv_spread"
+        ] = (
+            raw[
+                "iv30"
+            ]
+            - raw[
+                "rv20"
+            ]
+        )
+
+    component_frame = pd.DataFrame(
+        components,
+        index=close.index,
+    )
+
+    missing.extend(
+        latest_component_gap_labels(
+            component_frame,
+            cfg.positioning_weights,
+            close.index[-1],
+        )
+    )
+
+    score, coverage = weighted_frame(
+        component_frame,
+        cfg.positioning_weights,
+    )
+
+    return ModuleResult(
+        "positioning",
+        score,
+        coverage,
+        component_frame,
+        cfg.positioning_weights,
+        any(
+            proxies.values()
+        ),
+        sorted(
+            set(
+                missing
+            )
+        ),
+        [],
+        raw,
+    )
 
 # ============================================================
 # 7. Decision scores and actions
@@ -2158,10 +3102,15 @@ def get_critical_stale_inputs(
     return sorted(stale)
 
 
+
 def load_events(
     cfg: Config,
     logger: logging.Logger,
-) -> Tuple[pd.DataFrame, bool]:
+) -> Tuple[
+    pd.DataFrame,
+    bool,
+    Dict[str, Any],
+]:
     required = {
         "event_date",
         "asset",
@@ -2171,13 +3120,61 @@ def load_events(
     }
 
     frame = load_optional_csv(
-        cfg.data_directory / "events.csv",
+        cfg.data_directory
+        / "events.csv",
         required,
         logger,
     )
 
     if frame.empty:
-        return frame, False
+        return (
+            frame,
+            False,
+            {
+                "status":
+                    "unavailable",
+                "missing_checks":
+                    [
+                        "events.csv",
+                    ],
+            },
+        )
+
+    assets = set(
+        frame[
+            "asset"
+        ]
+        .dropna()
+        .astype(str)
+        .str.upper()
+    )
+
+    sources = set(
+        frame[
+            "source"
+        ]
+        .dropna()
+        .astype(str)
+        .str.upper()
+    )
+
+    descriptions = (
+        frame[
+            "description"
+        ]
+        .fillna("")
+        .astype(str)
+        .str.lower()
+    )
+
+    event_types = (
+        frame[
+            "event_type"
+        ]
+        .fillna("")
+        .astype(str)
+        .str.lower()
+    )
 
     required_scopes = {
         "MARKET",
@@ -2188,29 +3185,124 @@ def load_events(
         "AMZN",
     }
 
-    available_scopes = set(
-        frame["asset"]
-        .dropna()
-        .astype(str)
-        .str.upper()
-    )
+    checks = {
+        "required_asset_scopes":
+            required_scopes.issubset(
+                assets
+            ),
+        "fomc_calendar":
+            bool(
+                event_types.isin(
+                    [
+                        "fomc",
+                        "fed",
+                    ]
+                ).any()
+            ),
+        "bls_major_calendar":
+            bool(
+                (
+                    frame[
+                        "source"
+                    ]
+                    .astype(str)
+                    .str.upper()
+                    .eq(
+                        "BLS_ICS"
+                    )
+                    & descriptions.str.contains(
+                        r"consumer price index"
+                        r"|employment situation"
+                        r"|producer price index",
+                        regex=True,
+                        na=False,
+                    )
+                ).any()
+            ),
+        "bea_gdp_or_pce_calendar":
+            bool(
+                (
+                    frame[
+                        "source"
+                    ]
+                    .astype(str)
+                    .str.upper()
+                    .eq(
+                        "BEA_RELEASE_SCHEDULE"
+                    )
+                    & descriptions.str.contains(
+                        r"gross domestic product"
+                        r"|personal income and outlays"
+                        r"|gdp",
+                        regex=True,
+                        na=False,
+                    )
+                ).any()
+            ),
+        "five_company_earnings":
+            {
+                "NVDA",
+                "MSFT",
+                "META",
+                "GOOGL",
+                "AMZN",
+            }.issubset(
+                set(
+                    frame.loc[
+                        event_types.eq(
+                            "earnings"
+                        ),
+                        "asset",
+                    ]
+                    .dropna()
+                    .astype(str)
+                    .str.upper()
+                )
+            ),
+    }
 
-    complete = required_scopes.issubset(
-        available_scopes
-    )
+    missing_checks = [
+        name
+        for name, passed
+        in checks.items()
+        if not passed
+    ]
+
+    complete = not missing_checks
 
     if not complete:
-        missing = sorted(
-            required_scopes - available_scopes
-        )
-
         logger.warning(
-            "Event calendar incomplete; missing scopes: %s",
-            missing,
+            "Event calendar is only partially "
+            "available; missing checks: %s",
+            missing_checks,
         )
 
-    return frame, complete
+    quality = {
+        "status":
+            (
+                "complete"
+                if complete
+                else "partial"
+            ),
+        "checks":
+            checks,
+        "missing_checks":
+            missing_checks,
+        "sources":
+            sorted(
+                sources
+            ),
+        "asset_scopes":
+            sorted(
+                assets
+            ),
+    }
 
+    return (
+        frame,
+        complete,
+        quality,
+    )
 
 def upcoming_events(
     events: pd.DataFrame,
@@ -2392,78 +3484,390 @@ def action_text(target: float, cash: Tuple[int, int]) -> str:
     return f"少見高信心區；目標融資 {target:.1f}%，仍保留至少 10% 現金。"
 
 
-def build_output(cfg: Config, date: pd.Timestamp, modules: Mapping[str, ModuleResult],
-                 buy: pd.Series, risk: pd.Series, margin: pd.Series,
-                 buy_cov: pd.Series, risk_cov: pd.Series, margin_cov: pd.Series,
-                 overall_cov: pd.Series, bonus: pd.Series, penalty: pd.Series,
-                 carry: Optional[pd.Series], spread: Optional[pd.Series],
-                 overrides: Mapping[str, pd.Series], target: float, cash: Tuple[int, int],
-                 cc: str, cc_reasons: List[str], allocation_reasons: List[str],
-                 event_check: bool, events: List[Dict[str, Any]]) -> Dict[str, Any]:
-    scores = {k: latest(v.score, date, 2) for k, v in modules.items()}
-    stale = sorted({x for v in modules.values() for x in v.stale_inputs})
-    missing = sorted({x for v in modules.values() for x in v.missing_inputs})
-    proxy = sorted(k for k, v in modules.items() if v.is_proxy)
-    unavailable = sorted(k for k, v in scores.items() if v is None)
-    raw = {f"{m}.{k}": latest(s, date) for m, result in modules.items() for k, s in result.raw.items()}
-    critical_stale_series = get_critical_stale_inputs(
-        modules["market_regime"],
-        modules["liquidity"],
+
+def build_output(
+    cfg: Config,
+    date: pd.Timestamp,
+    modules: Mapping[str, ModuleResult],
+    buy: pd.Series,
+    risk: pd.Series,
+    margin: pd.Series,
+    buy_cov: pd.Series,
+    risk_cov: pd.Series,
+    margin_cov: pd.Series,
+    overall_cov: pd.Series,
+    bonus: pd.Series,
+    penalty: pd.Series,
+    carry: Optional[pd.Series],
+    spread: Optional[pd.Series],
+    overrides: Mapping[str, pd.Series],
+    target: float,
+    cash: Tuple[int, int],
+    cc: str,
+    cc_reasons: List[str],
+    allocation_reasons: List[str],
+    event_check: bool,
+    event_quality: Dict[str, Any],
+    events: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    module_scores = {
+        key: latest(
+            result.score,
+            date,
+            2,
+        )
+        for key, result
+        in modules.items()
+    }
+
+    stale = sorted(
+        {
+            item
+            for result in modules.values()
+            for item in result.stale_inputs
+        }
+    )
+
+    missing = sorted(
+        {
+            item
+            for result in modules.values()
+            for item in result.missing_inputs
+        }
+    )
+
+    proxy = sorted(
+        key
+        for key, result
+        in modules.items()
+        if result.is_proxy
+    )
+
+    unavailable = sorted(
+        key
+        for key, value
+        in module_scores.items()
+        if value is None
+    )
+
+    raw = {
+        f"{module_name}.{indicator}":
+            latest(
+                series,
+                date,
+            )
+        for module_name, result
+        in modules.items()
+        for indicator, series
+        in result.raw.items()
+    }
+
+    critical_stale_series = (
+        get_critical_stale_inputs(
+            modules[
+                "market_regime"
+            ],
+            modules[
+                "liquidity"
+            ],
+        )
     )
 
     critical_ok = (
-        scores["market_regime"] is not None
-        and scores["liquidity"] is not None
+        module_scores[
+            "market_regime"
+        ] is not None
+        and module_scores[
+            "liquidity"
+        ] is not None
         and not critical_stale_series
-        and (latest(overall_cov, date) or 0) >= 0.60
+        and (
+            latest(
+                overall_cov,
+                date,
+            )
+            or 0
+        )
+        >= 0.60
     )
-    module_frame = pd.DataFrame({k: v.score for k, v in modules.items()})
-    decision_date = next_nyse_session_after(
-    date
+
+    module_frame = pd.DataFrame(
+        {
+            key:
+                result.score
+            for key, result
+            in modules.items()
+        }
+    )
+
+    decision_date = (
+        next_nyse_session_after(
+            date
+        )
+    )
+
+    iv30 = raw.get(
+        "positioning.iv30"
+    )
+
+    rv20 = raw.get(
+        "positioning.rv20"
+    )
+
+    iv_rv_spread = raw.get(
+        "positioning.iv_rv_spread"
+    )
+
+    options_available = (
+        iv30 is not None
+        and rv20 is not None
     )
 
     output = {
-    "signal_date": date.date().isoformat(),
-    "decision_date": decision_date.date().isoformat(),
-    "generated_at": datetime.now(timezone.utc).isoformat(),
-
-        "data_mode": cfg.data_mode,
-        "historical_data_is_revised": cfg.data_mode == "live_public",
-        "scores": {"Buy_Score": latest(buy, date, 2), "Risk_Score": latest(risk, date, 2),
-                   "Margin_Score": latest(margin, date, 2), "Carry_Score": latest(carry, date, 2)},
-        "modules": {"Market_Regime": scores["market_regime"], "AI_Cycle": scores["ai_cycle"],
-                    "Valuation": scores["valuation"], "Macro": scores["macro"],
-                    "Liquidity": scores["liquidity"], "Positioning": scores["positioning"]},
-        "allocation": {"Target_Margin_Pct": target, "Target_Cash_Min_Pct": cash[0], "Target_Cash_Max_Pct": cash[1]},
-        "covered_call": {"status": cc, "reason": cc_reasons, "strike_recommendation_available": False},
-        "action": action_text(target, cash),
-        "effective_module_weights": {
-            "buy": effective_weights(module_frame.loc[:date].tail(1), cfg.buy_score_weights),
-            "risk": effective_weights(module_frame.loc[:date].tail(1), cfg.risk_support_weights),
-            "margin": effective_weights(module_frame.loc[:date].tail(1), cfg.margin_base_weights),
+        "signal_date":
+            date.date().isoformat(),
+        "decision_date":
+            decision_date
+            .date()
+            .isoformat(),
+        "generated_at":
+            datetime.now(
+                timezone.utc
+            )
+            .isoformat(),
+        "data_mode":
+            cfg.data_mode,
+        "historical_data_is_revised":
+            cfg.data_mode
+            == "live_public",
+        "scores": {
+            "Buy_Score":
+                latest(
+                    buy,
+                    date,
+                    2,
+                ),
+            "Risk_Score":
+                latest(
+                    risk,
+                    date,
+                    2,
+                ),
+            "Margin_Score":
+                latest(
+                    margin,
+                    date,
+                    2,
+                ),
+            "Carry_Score":
+                latest(
+                    carry,
+                    date,
+                    2,
+                ),
         },
-        "module_data_quality": {k: v.latest_quality(date) for k, v in modules.items()},
-        "data_quality": {"coverage_ratio": latest(overall_cov, date, 4), "buy_coverage": latest(buy_cov, date, 4),
-                         "risk_coverage": latest(risk_cov, date, 4), "margin_coverage": latest(margin_cov, date, 4),
-                         "critical_data_ok": critical_ok,
-                         "critical_stale_series": critical_stale_series,
-                         "stale_series": stale, "missing_series": missing,
-                         "proxy_modules": proxy, "unavailable_modules": unavailable,
-                         "event_check_available": event_check},
-        "risk_overrides": [k for k, s in overrides.items() if bool(s.get(date, False))],
-        "decision_reasons": allocation_reasons,
-        "modifiers": {"panic_bonus": latest(bonus, date, 2), "euphoria_penalty": latest(penalty, date, 2),
-                      "expected_return_spread_pct_points": latest(spread, date, 4)},
-        "upcoming_events": events,
-        "raw_indicators": raw,
+        "modules": {
+            "Market_Regime":
+                module_scores[
+                    "market_regime"
+                ],
+            "AI_Cycle":
+                module_scores[
+                    "ai_cycle"
+                ],
+            "Valuation":
+                module_scores[
+                    "valuation"
+                ],
+            "Macro":
+                module_scores[
+                    "macro"
+                ],
+            "Liquidity":
+                module_scores[
+                    "liquidity"
+                ],
+            "Positioning":
+                module_scores[
+                    "positioning"
+                ],
+        },
+        "allocation": {
+            "Target_Margin_Pct":
+                target,
+            "Target_Cash_Min_Pct":
+                cash[0],
+            "Target_Cash_Max_Pct":
+                cash[1],
+        },
+        "covered_call": {
+            "status":
+                cc,
+            "reason":
+                cc_reasons,
+            "options_data_available":
+                options_available,
+            "iv30_pct":
+                iv30,
+            "rv20_pct":
+                rv20,
+            "iv_minus_rv_pct_points":
+                iv_rv_spread,
+            # yfinance does not provide verified delta.
+            "strike_recommendation_available":
+                False,
+        },
+        "action":
+            action_text(
+                target,
+                cash,
+            ),
+        "effective_module_weights": {
+            "buy":
+                effective_weights(
+                    module_frame
+                    .loc[
+                        :date
+                    ]
+                    .tail(1),
+                    cfg.buy_score_weights,
+                ),
+            "risk":
+                effective_weights(
+                    module_frame
+                    .loc[
+                        :date
+                    ]
+                    .tail(1),
+                    cfg.risk_support_weights,
+                ),
+            "margin":
+                effective_weights(
+                    module_frame
+                    .loc[
+                        :date
+                    ]
+                    .tail(1),
+                    cfg.margin_base_weights,
+                ),
+        },
+        "module_data_quality": {
+            key:
+                result.latest_quality(
+                    date
+                )
+            for key, result
+            in modules.items()
+        },
+        "data_quality": {
+            "coverage_ratio":
+                latest(
+                    overall_cov,
+                    date,
+                    4,
+                ),
+            "buy_coverage":
+                latest(
+                    buy_cov,
+                    date,
+                    4,
+                ),
+            "risk_coverage":
+                latest(
+                    risk_cov,
+                    date,
+                    4,
+                ),
+            "margin_coverage":
+                latest(
+                    margin_cov,
+                    date,
+                    4,
+                ),
+            "critical_data_ok":
+                critical_ok,
+            "critical_stale_series":
+                critical_stale_series,
+            "stale_series":
+                stale,
+            "missing_series":
+                missing,
+            "proxy_modules":
+                proxy,
+            "unavailable_modules":
+                unavailable,
+            "event_check_available":
+                event_check,
+            "event_calendar":
+                event_quality,
+        },
+        "risk_overrides": [
+            key
+            for key, series
+            in overrides.items()
+            if bool(
+                series.get(
+                    date,
+                    False,
+                )
+            )
+        ],
+        "decision_reasons":
+            allocation_reasons,
+        "modifiers": {
+            "panic_bonus":
+                latest(
+                    bonus,
+                    date,
+                    2,
+                ),
+            "euphoria_penalty":
+                latest(
+                    penalty,
+                    date,
+                    2,
+                ),
+            "expected_return_spread_pct_points":
+                latest(
+                    spread,
+                    date,
+                    4,
+                ),
+        },
+        "upcoming_events":
+            events,
+        "raw_indicators":
+            raw,
         "methodology_notes": [
-            "live_public FRED history may contain revisions and is not strict PIT." if cfg.data_mode == "live_public" else "strict_pit uses supplied effective dates.",
-            "Valuation and AI Cycle are unavailable unless PIT CSV files contain usable data.",
-            "Covered Call output is directional; no strike is produced without verified options data.",
+            (
+                "live_public FRED history may contain revisions "
+                "and is not strict PIT."
+                if cfg.data_mode
+                == "live_public"
+                else
+                "strict_pit uses supplied effective dates."
+            ),
+            (
+                "Free valuation uses SEC-derived TTM fundamentals "
+                "with annual fallback; it does not fabricate "
+                "forward consensus estimates."
+            ),
+            (
+                "AI Cycle uses calibrated revenue and amount-weighted "
+                "CapEx proxies; TSMC HPC and Micron HBM remain "
+                "unavailable without reliable PIT inputs."
+            ),
+            (
+                "Options IV/RV data is a QQQ yfinance proxy. "
+                "No verified delta is available, so no exact "
+                "covered-call strike is produced."
+            ),
         ],
     }
-    return json_safe(output)
 
+    return json_safe(
+        output
+    )
 
 def build_history(calendar: pd.DatetimeIndex, modules: Mapping[str, ModuleResult],
                   buy: pd.Series, risk: pd.Series, margin: pd.Series,
@@ -2512,139 +3916,642 @@ def save_outputs(cfg: Config, output: Dict[str, Any], history: pd.DataFrame,
     pd.DataFrame([{"signal_date": date.date().isoformat(), **output["raw_indicators"]}]).to_csv(cfg.output_directory / "raw_indicator_snapshot.csv", index=False)
 
 
-def run_tests(output: Dict[str, Any], claims: pd.Series, modules: Mapping[str, ModuleResult]) -> None:
-    all_scores = {**output["scores"], **output["modules"]}
+
+def run_tests(
+    output: Dict[str, Any],
+    claims: pd.Series,
+    modules: Mapping[str, ModuleResult],
+) -> None:
+    all_scores = {
+        **output[
+            "scores"
+        ],
+        **output[
+            "modules"
+        ],
+    }
+
     for name, value in all_scores.items():
         if value is not None:
-            assert 0 <= value <= 100, name
-    target = output["allocation"]["Target_Margin_Pct"]
-    assert 0 <= target <= 20
-    if output["scores"]["Risk_Score"] is not None and output["scores"]["Risk_Score"] > 70: assert target == 0
-    if output["modules"]["Liquidity"] is not None and output["modules"]["Liquidity"] < 30: assert target == 0
-    if output["scores"]["Margin_Score"] is not None and output["scores"]["Margin_Score"] < 45: assert target == 0
-    if output["data_quality"]["coverage_ratio"] is not None and output["data_quality"]["coverage_ratio"] < .60: assert target == 0
-    if not claims.empty:
-        assert claims.dropna().rolling(4).mean().notna().sum() == max(0, len(claims.dropna()) - 3)
-    assert "qqq_5y" not in modules["valuation"].raw
-    assert "nvda_relative_strength" not in modules["ai_cycle"].raw
-    assert number(0.0) == 0.0
+            assert (
+                0
+                <= value
+                <= 100
+            ), name
 
+    target = output[
+        "allocation"
+    ][
+        "Target_Margin_Pct"
+    ]
+
+    assert (
+        0
+        <= target
+        <= 20
+    )
+
+    risk_score = output[
+        "scores"
+    ][
+        "Risk_Score"
+    ]
+
+    liquidity_score = output[
+        "modules"
+    ][
+        "Liquidity"
+    ]
+
+    margin_score = output[
+        "scores"
+    ][
+        "Margin_Score"
+    ]
+
+    coverage = output[
+        "data_quality"
+    ][
+        "coverage_ratio"
+    ]
+
+    if (
+        risk_score is not None
+        and risk_score > 70
+    ):
+        assert target == 0
+
+    if (
+        liquidity_score is not None
+        and liquidity_score < 30
+    ):
+        assert target == 0
+
+    if (
+        margin_score is not None
+        and margin_score < 45
+    ):
+        assert target == 0
+
+    if (
+        coverage is not None
+        and coverage < 0.60
+    ):
+        assert target == 0
+
+    if not claims.empty:
+        expected = max(
+            0,
+            len(
+                claims.dropna()
+            )
+            - 3,
+        )
+
+        actual = (
+            claims
+            .dropna()
+            .rolling(4)
+            .mean()
+            .notna()
+            .sum()
+        )
+
+        assert actual == expected
+
+    options = output[
+        "covered_call"
+    ]
+
+    if options[
+        "options_data_available"
+    ]:
+        assert (
+            options[
+                "iv30_pct"
+            ]
+            is not None
+        )
+
+        assert (
+            options[
+                "rv20_pct"
+            ]
+            is not None
+        )
+
+        # No verified delta exists in this free proxy.
+        assert (
+            options[
+                "strike_recommendation_available"
+            ]
+            is False
+        )
+
+    assert (
+        "qqq_5y"
+        not in modules[
+            "valuation"
+        ].raw
+    )
+
+    assert (
+        "nvda_relative_strength"
+        not in modules[
+            "ai_cycle"
+        ].raw
+    )
+
+    assert number(
+        0.0
+    ) == 0.0
 
 # ============================================================
 # 9. Main
 # ============================================================
 
+
 def main() -> None:
     cfg = CFG
-    validate_config(cfg)
-    cfg.data_directory.mkdir(parents=True, exist_ok=True)
-    cfg.cache_directory.mkdir(parents=True, exist_ok=True)
-    logger = configure_logging(cfg)
-    logger.info("Starting Investment OS production engine; mode=%s", cfg.data_mode)
+    validate_config(
+        cfg
+    )
 
-    market = load_yfinance_data(cfg, logger)
-    close, _ = validate_market_data(market, cfg, logger)
-    calendar, date = close.index, close.index[-1]
+    cfg.data_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    fred_obs = load_strict_pit_macro(cfg) if cfg.data_mode == "strict_pit" else load_live_fred(cfg, logger)
-    events = to_event_series(fred_obs, cfg)
-    aligned = apply_staleness_rules(events, calendar, cfg)
+    cfg.cache_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    valuation, earnings_yield = calculate_valuation(calendar, cfg, logger)
-    ai_cycle = calculate_ai_cycle(calendar, cfg, logger)
-    ext_scores, ext_raw, proxy_flags = load_positioning_pit(calendar, cfg, logger)
-    nowcast = load_nowcast(calendar, cfg, logger)
-    market_regime = calculate_market_regime(close, aligned, cfg)
-    macro = calculate_macro(calendar, events, aligned, nowcast, cfg)
-    liquidity = calculate_liquidity(calendar, events, aligned, cfg)
-    positioning = calculate_positioning(close, ext_scores, ext_raw, proxy_flags, cfg)
-    modules = {"market_regime": market_regime, "ai_cycle": ai_cycle, "valuation": valuation,
-               "macro": macro, "liquidity": liquidity, "positioning": positioning}
+    logger = configure_logging(
+        cfg
+    )
 
-    buy, buy_cov, bonus, penalty = calculate_buy_score(modules, cfg)
-    risk, risk_cov, overrides = calculate_risk_score(modules, buy_cov, cfg)
-    _, overall_cov = combine_modules(modules, cfg.module_base_weights)
-    real10 = aligned.get("real_10y", AlignedSeries(pd.Series(np.nan, index=calendar), pd.Series(pd.NaT, index=calendar), pd.Series(np.nan, index=calendar), pd.Series(True, index=calendar), "missing")).value
-    margin, margin_cov, carry, spread = calculate_margin_score(modules, risk, earnings_yield, real10, overall_cov, cfg)
+    logger.info(
+        "Starting Investment OS production "
+        "engine; mode=%s",
+        cfg.data_mode,
+    )
 
-    values = [latest(x, date) for x in (buy, risk, margin, liquidity.score, overall_cov)]
-    if any(v is None for v in values):
-        target, allocation_reasons, cash = 0.0, ["Latest_critical_scores_incomplete"], (30, 40)
+    market = load_yfinance_data(
+        cfg,
+        logger,
+    )
+
+    close, _ = validate_market_data(
+        market,
+        cfg,
+        logger,
+    )
+
+    calendar = close.index
+    date = close.index[-1]
+
+    fred_observations = (
+        load_strict_pit_macro(
+            cfg
+        )
+        if cfg.data_mode
+        == "strict_pit"
+        else load_live_fred(
+            cfg,
+            logger,
+        )
+    )
+
+    fred_events = to_event_series(
+        fred_observations,
+        cfg,
+    )
+
+    aligned = apply_staleness_rules(
+        fred_events,
+        calendar,
+        cfg,
+    )
+
+    valuation, earnings_yield = (
+        calculate_valuation(
+            calendar,
+            cfg,
+            logger,
+        )
+    )
+
+    ai_cycle = calculate_ai_cycle(
+        calendar,
+        cfg,
+        logger,
+    )
+
+    (
+        external_scores,
+        external_raw,
+        proxy_flags,
+    ) = load_positioning_pit(
+        calendar,
+        cfg,
+        logger,
+    )
+
+    nowcast = load_nowcast(
+        calendar,
+        cfg,
+        logger,
+    )
+
+    market_regime = (
+        calculate_market_regime(
+            close,
+            aligned,
+            cfg,
+        )
+    )
+
+    macro = calculate_macro(
+        calendar,
+        fred_events,
+        aligned,
+        nowcast,
+        cfg,
+    )
+
+    liquidity = calculate_liquidity(
+        calendar,
+        fred_events,
+        aligned,
+        cfg,
+    )
+
+    positioning = calculate_positioning(
+        close,
+        external_scores,
+        external_raw,
+        proxy_flags,
+        cfg,
+    )
+
+    modules = {
+        "market_regime":
+            market_regime,
+        "ai_cycle":
+            ai_cycle,
+        "valuation":
+            valuation,
+        "macro":
+            macro,
+        "liquidity":
+            liquidity,
+        "positioning":
+            positioning,
+    }
+
+    (
+        buy,
+        buy_coverage,
+        bonus,
+        penalty,
+    ) = calculate_buy_score(
+        modules,
+        cfg,
+    )
+
+    (
+        risk,
+        risk_coverage,
+        overrides,
+    ) = calculate_risk_score(
+        modules,
+        buy_coverage,
+        cfg,
+    )
+
+    _, overall_coverage = (
+        combine_modules(
+            modules,
+            cfg.module_base_weights,
+        )
+    )
+
+    real_10y = aligned.get(
+        "real_10y",
+        AlignedSeries(
+            pd.Series(
+                np.nan,
+                index=calendar,
+            ),
+            pd.Series(
+                pd.NaT,
+                index=calendar,
+            ),
+            pd.Series(
+                np.nan,
+                index=calendar,
+            ),
+            pd.Series(
+                True,
+                index=calendar,
+            ),
+            "missing",
+        ),
+    ).value
+
+    (
+        margin,
+        margin_coverage,
+        carry,
+        spread,
+    ) = calculate_margin_score(
+        modules,
+        risk,
+        earnings_yield,
+        real_10y,
+        overall_coverage,
+        cfg,
+    )
+
+    values = [
+        latest(
+            series,
+            date,
+        )
+        for series in (
+            buy,
+            risk,
+            margin,
+            liquidity.score,
+            overall_coverage,
+        )
+    ]
+
+    if any(
+        value is None
+        for value in values
+    ):
+        target = 0.0
+        allocation_reasons = [
+            "Latest_critical_scores_incomplete",
+        ]
+        cash = (
+            30,
+            40,
+        )
     else:
-        b, r, m, l, cov = values
-        critical_stale_series = get_critical_stale_inputs(
+        (
+            buy_value,
+            risk_value,
+            margin_value,
+            liquidity_value,
+            coverage_value,
+        ) = values
+
+        critical_stale_series = (
+            get_critical_stale_inputs(
+                market_regime,
+                liquidity,
+            )
+        )
+
+        target, allocation_reasons = (
+            determine_target_margin(
+                buy_value,
+                risk_value,
+                margin_value,
+                liquidity_value,
+                coverage_value,
+                latest(
+                    market_regime.score,
+                    date,
+                )
+                is not None,
+                latest(
+                    liquidity.score,
+                    date,
+                )
+                is not None,
+                bool(
+                    critical_stale_series
+                ),
+                latest(
+                    valuation.score,
+                    date,
+                )
+                is not None,
+                latest(
+                    carry,
+                    date,
+                )
+                is not None,
+                cfg,
+            )
+        )
+
+        cash = determine_target_cash(
+            buy_value,
+            risk_value,
+        )
+
+    (
+        event_frame,
+        event_check,
+        event_quality,
+    ) = load_events(
+        cfg,
+        logger,
+    )
+
+    future_events = upcoming_events(
+        event_frame,
+        date,
+        calendar,
+        10,
+    )
+
+    iv30 = external_raw.get(
+        "iv30"
+    )
+
+    rv20 = external_raw.get(
+        "rv20"
+    )
+
+    iv_available = (
+        iv30 is not None
+        and rv20 is not None
+        and latest(
+            iv30,
+            date,
+        )
+        is not None
+        and latest(
+            rv20,
+            date,
+        )
+        is not None
+    )
+
+    iv_positive = (
+        None
+        if not iv_available
+        else (
+            float(
+                latest(
+                    iv30,
+                    date,
+                )
+            )
+            > float(
+                latest(
+                    rv20,
+                    date,
+                )
+            )
+        )
+    )
+
+    critical_stale_series = (
+        get_critical_stale_inputs(
             market_regime,
             liquidity,
         )
-
-        critical_stale = bool(
-            critical_stale_series
-        )
-
-        target, allocation_reasons = determine_target_margin(
-            b,
-            r,
-            m,
-            l,
-            cov,
-            latest(
-                market_regime.score,
-                date,
-            ) is not None,
-            latest(
-                liquidity.score,
-                date,
-            ) is not None,
-            critical_stale,
-            latest(
-                valuation.score,
-                date,
-            ) is not None,
-            latest(
-                carry,
-                date,
-            ) is not None,
-            cfg,
-        )
-        cash = determine_target_cash(b, r)
-
-    event_frame, event_check = load_events(cfg, logger)
-    future_events = upcoming_events(event_frame, date, calendar, 10)
-    iv30, rv20 = ext_raw.get("iv30"), ext_raw.get("rv20")
-    iv_available = iv30 is not None and rv20 is not None
-    iv_positive = None if not iv_available else ((latest(iv30, date) or -np.inf) > (latest(rv20, date) or np.inf))
-    critical_stale_series = get_critical_stale_inputs(
-        market_regime,
-        liquidity,
     )
 
     critical_ok = (
         latest(
             market_regime.score,
             date,
-        ) is not None
+        )
+        is not None
         and latest(
             liquidity.score,
             date,
-        ) is not None
+        )
+        is not None
         and not critical_stale_series
-        and (latest(overall_cov, date) or 0) >= 0.60
+        and (
+            latest(
+                overall_coverage,
+                date,
+            )
+            or 0
+        )
+        >= 0.60
     )
-    cc, cc_reasons = determine_cc(values[0] or 0, values[1] if values[1] is not None else 100,
-        values[4] or 0, latest(bonus, date) or 0, latest(ai_cycle.score, date), latest(valuation.score, date),
-        future_events, event_check, critical_ok, iv_available, iv_positive)
 
-    output = build_output(cfg, date, modules, buy, risk, margin, buy_cov, risk_cov,
-                          margin_cov, overall_cov, bonus, penalty, carry, spread,
-                          overrides, target, cash, cc, cc_reasons, allocation_reasons,
-                          event_check, future_events)
-    history = build_history(calendar, modules, buy, risk, margin, overall_cov, bonus, cfg)
-    save_outputs(cfg, output, history, modules, date)
-    run_tests(output, events.get("claims", pd.Series(dtype=float)), modules)
-    logger.info("Completed: Buy=%s Risk=%s Margin=%s Target=%s%% CC=%s",
-                output["scores"]["Buy_Score"], output["scores"]["Risk_Score"],
-                output["scores"]["Margin_Score"], target, cc)
+    covered_call, cc_reasons = (
+        determine_cc(
+            values[0]
+            or 0,
+            (
+                values[1]
+                if values[1]
+                is not None
+                else 100
+            ),
+            values[4]
+            or 0,
+            latest(
+                bonus,
+                date,
+            )
+            or 0,
+            latest(
+                ai_cycle.score,
+                date,
+            ),
+            latest(
+                valuation.score,
+                date,
+            ),
+            future_events,
+            event_check,
+            critical_ok,
+            iv_available,
+            iv_positive,
+        )
+    )
 
+    output = build_output(
+        cfg,
+        date,
+        modules,
+        buy,
+        risk,
+        margin,
+        buy_coverage,
+        risk_coverage,
+        margin_coverage,
+        overall_coverage,
+        bonus,
+        penalty,
+        carry,
+        spread,
+        overrides,
+        target,
+        cash,
+        covered_call,
+        cc_reasons,
+        allocation_reasons,
+        event_check,
+        event_quality,
+        future_events,
+    )
+
+    history = build_history(
+        calendar,
+        modules,
+        buy,
+        risk,
+        margin,
+        overall_coverage,
+        bonus,
+        cfg,
+    )
+
+    save_outputs(
+        cfg,
+        output,
+        history,
+        modules,
+        date,
+    )
+
+    run_tests(
+        output,
+        fred_events.get(
+            "claims",
+            pd.Series(
+                dtype=float
+            ),
+        ),
+        modules,
+    )
+
+    logger.info(
+        "Completed: Buy=%s Risk=%s "
+        "Margin=%s Target=%s%% CC=%s",
+        output[
+            "scores"
+        ][
+            "Buy_Score"
+        ],
+        output[
+            "scores"
+        ][
+            "Risk_Score"
+        ],
+        output[
+            "scores"
+        ][
+            "Margin_Score"
+        ],
+        target,
+        covered_call,
+    )
 
 if __name__ == "__main__":
     main()
