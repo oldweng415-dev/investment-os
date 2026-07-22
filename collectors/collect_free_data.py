@@ -13,14 +13,16 @@ No paid data is used. Values that rely on a conservative publication-time
 assumption or a derived basket are explicitly marked is_proxy=true.
 """
 
+import hashlib
 import logging
 import math
 import os
 import re
 import time
-from io import StringIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
+from urllib.parse import urljoin
 
 import numpy as np
 import pandas as pd
@@ -28,6 +30,7 @@ import pandas_market_calendars as mcal
 import requests
 import yfinance as yf
 from bs4 import BeautifulSoup
+from pypdf import PdfReader
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -2282,16 +2285,1049 @@ def conservative_release_timestamp(filed_date: pd.Timestamp) -> pd.Timestamp:
 
 
 
+
+TSMC_QUARTERLY_ROOT = (
+    "https://investor.tsmc.com/english/"
+    "quarterly-results"
+)
+
+MICRON_EVENTS_URL = (
+    "https://investors.micron.com/"
+    "events-and-presentations"
+)
+
+MONTH_PATTERN = (
+    r"January|February|March|April|May|June|July|"
+    r"August|September|October|November|December"
+)
+
+
+def normalize_document_text(
+    text: str,
+) -> str:
+    normalized = (
+        str(text)
+        .replace("\u00a0", " ")
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+        .replace("\u2019", "'")
+        .replace("\u2212", "-")
+    )
+
+    return re.sub(
+        r"[ \t]+",
+        " ",
+        normalized,
+    )
+
+
+def download_pdf_text(
+    url: str,
+) -> tuple[str, str]:
+    response = SESSION.get(
+        url,
+        timeout=(10, 120),
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            "Official PDF request failed: "
+            f"url={url}; "
+            f"status={response.status_code}; "
+            f"body={response.text[:500]}"
+        )
+
+    content = response.content
+
+    if not content.startswith(b"%PDF"):
+        raise RuntimeError(
+            "Official document is not a PDF: "
+            f"url={url}; "
+            f"content_type={response.headers.get('Content-Type')}"
+        )
+
+    document_hash = hashlib.sha256(
+        content
+    ).hexdigest()
+
+    reader = PdfReader(
+        BytesIO(content)
+    )
+
+    pages = [
+        page.extract_text() or ""
+        for page in reader.pages
+    ]
+
+    text = normalize_document_text(
+        "\n".join(pages)
+    )
+
+    if len(text.strip()) < 200:
+        raise RuntimeError(
+            "Official PDF has no usable text layer: "
+            f"url={url}"
+        )
+
+    return text, document_hash
+
+
+def parse_document_date(
+    text: str,
+) -> pd.Timestamp:
+    match = re.search(
+        rf"\b({MONTH_PATTERN})\s+"
+        r"(\d{1,2}),\s+(20\d{2})\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        raise RuntimeError(
+            "Unable to parse official document date"
+        )
+
+    parsed = pd.to_datetime(
+        match.group(0),
+        errors="coerce",
+    )
+
+    if pd.isna(parsed):
+        raise RuntimeError(
+            "Official document date is invalid: "
+            f"{match.group(0)}"
+        )
+
+    return pd.Timestamp(parsed).normalize()
+
+
+def tsmc_quarter_end(
+    year: int,
+    quarter: int,
+) -> pd.Timestamp:
+    quarter_month = {
+        1: 3,
+        2: 6,
+        3: 9,
+        4: 12,
+    }[quarter]
+
+    return (
+        pd.Timestamp(
+            year=year,
+            month=quarter_month,
+            day=1,
+        )
+        + pd.offsets.MonthEnd(0)
+    )
+
+
+def find_tsmc_presentation(
+    year: int,
+    quarter: int,
+) -> Optional[dict[str, Any]]:
+    page_url = (
+        f"{TSMC_QUARTERLY_ROOT}/"
+        f"{year}/q{quarter}"
+    )
+
+    response = SESSION.get(
+        page_url,
+        timeout=(10, 60),
+    )
+
+    if not response.ok:
+        return None
+
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser",
+    )
+
+    for anchor in soup.find_all(
+        "a",
+        href=True,
+    ):
+        label = " ".join(
+            anchor.get_text(
+                " ",
+                strip=True,
+            ).split()
+        ).lower()
+
+        if "presentation material" not in label:
+            continue
+
+        return {
+            "year": year,
+            "quarter": quarter,
+            "page_url": page_url,
+            "pdf_url": urljoin(
+                page_url,
+                anchor["href"],
+            ),
+        }
+
+    return None
+
+
+def discover_latest_tsmc_quarter() -> dict[str, Any]:
+    now_taipei = utc_now().tz_convert(
+        "Asia/Taipei"
+    )
+
+    current_year = int(
+        now_taipei.year
+    )
+
+    candidates: list[
+        dict[str, Any]
+    ] = []
+
+    for year in range(
+        current_year,
+        current_year - 3,
+        -1,
+    ):
+        for quarter in (
+            4,
+            3,
+            2,
+            1,
+        ):
+            result = find_tsmc_presentation(
+                year,
+                quarter,
+            )
+
+            if result is not None:
+                candidates.append(
+                    result
+                )
+
+    if not candidates:
+        raise RuntimeError(
+            "No TSMC quarterly presentation "
+            "could be discovered"
+        )
+
+    latest = max(
+        candidates,
+        key=lambda item: (
+            item["year"],
+            item["quarter"],
+        ),
+    )
+
+    previous = find_tsmc_presentation(
+        int(latest["year"]) - 1,
+        int(latest["quarter"]),
+    )
+
+    if previous is None:
+        raise RuntimeError(
+            "TSMC prior-year comparable "
+            "presentation is unavailable"
+        )
+
+    return {
+        "current": latest,
+        "previous": previous,
+    }
+
+
+def parse_tsmc_net_revenue_usd_bn(
+    text: str,
+) -> float:
+    patterns = (
+        r"Net Revenue\s*"
+        r"\(US\$\s*billions?\)\s*"
+        r"([0-9]+(?:\.[0-9]+)?)",
+        r"Net Revenue\s*"
+        r"\(US\$ bn\)\s*"
+        r"([0-9]+(?:\.[0-9]+)?)",
+    )
+
+    for pattern in patterns:
+        match = re.search(
+            pattern,
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        if not match:
+            continue
+
+        value = float(
+            match.group(1)
+        )
+
+        if 1.0 < value < 200.0:
+            return value
+
+    raise RuntimeError(
+        "Unable to parse TSMC net revenue "
+        "from official presentation"
+    )
+
+
+def parse_tsmc_hpc_share_pct(
+    text: str,
+) -> float:
+    lower_text = text.lower()
+    marker = lower_text.find(
+        "revenue by platform"
+    )
+
+    if marker < 0:
+        raise RuntimeError(
+            "TSMC Revenue by Platform "
+            "section was not found"
+        )
+
+    segment = text[
+        marker:
+        marker + 3000
+    ]
+
+    patterns = (
+        r"\bHPC\s*[\r\n ]*"
+        r"([0-9]+(?:\.[0-9]+)?)\s*%",
+        r"([0-9]+(?:\.[0-9]+)?)\s*%"
+        r"[\r\n ]*\bHPC\b",
+    )
+
+    for pattern in patterns:
+        match = re.search(
+            pattern,
+            segment,
+            flags=re.IGNORECASE,
+        )
+
+        if not match:
+            continue
+
+        value = float(
+            match.group(1)
+        )
+
+        if 5.0 <= value <= 95.0:
+            return value
+
+    raise RuntimeError(
+        "Unable to parse TSMC HPC share "
+        "from Revenue by Platform chart"
+    )
+
+
+def collect_tsmc_hpc_growth_row(
+    fetched_at: pd.Timestamp,
+) -> dict[str, Any]:
+    presentations = (
+        discover_latest_tsmc_quarter()
+    )
+
+    current_meta = presentations[
+        "current"
+    ]
+
+    previous_meta = presentations[
+        "previous"
+    ]
+
+    current_text, current_hash = (
+        download_pdf_text(
+            current_meta[
+                "pdf_url"
+            ]
+        )
+    )
+
+    previous_text, previous_hash = (
+        download_pdf_text(
+            previous_meta[
+                "pdf_url"
+            ]
+        )
+    )
+
+    current_revenue = (
+        parse_tsmc_net_revenue_usd_bn(
+            current_text
+        )
+    )
+
+    previous_revenue = (
+        parse_tsmc_net_revenue_usd_bn(
+            previous_text
+        )
+    )
+
+    current_share = (
+        parse_tsmc_hpc_share_pct(
+            current_text
+        )
+    )
+
+    previous_share = (
+        parse_tsmc_hpc_share_pct(
+            previous_text
+        )
+    )
+
+    current_hpc_proxy = (
+        current_revenue
+        * current_share
+        / 100.0
+    )
+
+    previous_hpc_proxy = (
+        previous_revenue
+        * previous_share
+        / 100.0
+    )
+
+    if previous_hpc_proxy <= 0:
+        raise RuntimeError(
+            "TSMC prior-year HPC revenue "
+            "proxy is not positive"
+        )
+
+    growth_pct = (
+        100.0
+        * (
+            current_hpc_proxy
+            / previous_hpc_proxy
+            - 1.0
+        )
+    )
+
+    if not (
+        -80.0
+        < growth_pct
+        < 300.0
+    ):
+        raise RuntimeError(
+            "TSMC HPC growth is outside "
+            f"plausible bounds: {growth_pct}"
+        )
+
+    release_date = parse_document_date(
+        current_text
+    )
+
+    release_timestamp = (
+        release_date
+        + pd.Timedelta(
+            hours=16
+        )
+    ).tz_localize(
+        "Asia/Taipei"
+    ).tz_convert(
+        "UTC"
+    )
+
+    return {
+        "observation_date":
+            tsmc_quarter_end(
+                int(
+                    current_meta[
+                        "year"
+                    ]
+                ),
+                int(
+                    current_meta[
+                        "quarter"
+                    ]
+                ),
+            )
+            .date()
+            .isoformat(),
+        "release_timestamp":
+            release_timestamp.isoformat(),
+        "effective_trade_date":
+            resolve_effective_trade_date(
+                release_timestamp
+            ),
+        "company":
+            "TSMC",
+        "metric":
+            "tsmc_hpc_growth",
+        "value":
+            round(
+                growth_pct,
+                6,
+            ),
+        "score":
+            round(
+                logistic_score(
+                    growth_pct,
+                    midpoint=15.0,
+                    scale=12.0,
+                    higher_is_better=True,
+                ),
+                4,
+            ),
+        "source":
+            "TSMC_QUARTERLY_PRESENTATION_"
+            "HPC_REVENUE_PROXY",
+        "is_proxy":
+            True,
+        "fetched_at":
+            fetched_at.isoformat(),
+        "source_id":
+            (
+                f"{current_hash},"
+                f"{previous_hash}"
+            ),
+        "period_basis":
+            "QUARTERLY_YOY",
+        "metric_basis":
+            "NET_REVENUE_X_HPC_SHARE_YOY",
+        "document_url":
+            current_meta[
+                "pdf_url"
+            ],
+        "comparison_document_url":
+            previous_meta[
+                "pdf_url"
+            ],
+        "document_sha256":
+            current_hash,
+        "comparison_document_sha256":
+            previous_hash,
+        "current_revenue_usd_bn":
+            round(
+                current_revenue,
+                6,
+            ),
+        "previous_revenue_usd_bn":
+            round(
+                previous_revenue,
+                6,
+            ),
+        "current_hpc_share_pct":
+            round(
+                current_share,
+                6,
+            ),
+        "previous_hpc_share_pct":
+            round(
+                previous_share,
+                6,
+            ),
+        "current_hpc_revenue_proxy_usd_bn":
+            round(
+                current_hpc_proxy,
+                6,
+            ),
+        "previous_hpc_revenue_proxy_usd_bn":
+            round(
+                previous_hpc_proxy,
+                6,
+            ),
+    }
+
+
+def parse_micron_event_timestamp(
+    anchor: Any,
+) -> Optional[pd.Timestamp]:
+    pattern = re.compile(
+        rf"\b({MONTH_PATTERN})\s+"
+        r"(\d{1,2}),\s+(20\d{2})"
+        r"(?:\s+at\s+"
+        r"(\d{1,2}:\d{2})\s+"
+        r"(AM|PM)\s+"
+        r"(EDT|EST|MDT|MST|CDT|CST|PDT|PST))?",
+        flags=re.IGNORECASE,
+    )
+
+    timezone_map = {
+        "EDT": "America/New_York",
+        "EST": "America/New_York",
+        "MDT": "America/Denver",
+        "MST": "America/Denver",
+        "CDT": "America/Chicago",
+        "CST": "America/Chicago",
+        "PDT": "America/Los_Angeles",
+        "PST": "America/Los_Angeles",
+    }
+
+    for text_node in anchor.find_all_previous(
+        string=True,
+        limit=120,
+    ):
+        candidate = " ".join(
+            str(text_node).split()
+        )
+
+        match = pattern.search(
+            candidate
+        )
+
+        if not match:
+            continue
+
+        date_text = (
+            f"{match.group(1)} "
+            f"{match.group(2)}, "
+            f"{match.group(3)}"
+        )
+
+        if match.group(4):
+            date_text += (
+                f" {match.group(4)} "
+                f"{match.group(5)}"
+            )
+
+        parsed = pd.to_datetime(
+            date_text,
+            errors="coerce",
+        )
+
+        if pd.isna(parsed):
+            continue
+
+        timestamp = pd.Timestamp(
+            parsed
+        )
+
+        if match.group(6):
+            timestamp = (
+                timestamp
+                .tz_localize(
+                    timezone_map[
+                        match.group(6).upper()
+                    ]
+                )
+                .tz_convert(
+                    "UTC"
+                )
+            )
+        else:
+            timestamp = (
+                timestamp
+                .normalize()
+                .replace(
+                    hour=16,
+                    minute=30,
+                )
+                .tz_localize(
+                    "America/New_York"
+                )
+                .tz_convert(
+                    "UTC"
+                )
+            )
+
+        return timestamp
+
+    return None
+
+
+def discover_latest_micron_prepared_remarks() -> dict[str, Any]:
+    response = SESSION.get(
+        MICRON_EVENTS_URL,
+        timeout=(10, 60),
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            "Micron events page request failed: "
+            f"status={response.status_code}; "
+            f"body={response.text[:500]}"
+        )
+
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser",
+    )
+
+    candidates: list[
+        dict[str, Any]
+    ] = []
+
+    title_pattern = re.compile(
+        r"\bQ([1-4])\s+(20\d{2})\s+"
+        r"Prepared Remarks\b",
+        flags=re.IGNORECASE,
+    )
+
+    for anchor in soup.find_all(
+        "a",
+        href=True,
+    ):
+        title = " ".join(
+            anchor.get_text(
+                " ",
+                strip=True,
+            ).split()
+        )
+
+        match = title_pattern.search(
+            title
+        )
+
+        if not match:
+            continue
+
+        candidates.append(
+            {
+                "fiscal_quarter":
+                    int(
+                        match.group(1)
+                    ),
+                "fiscal_year":
+                    int(
+                        match.group(2)
+                    ),
+                "title":
+                    title,
+                "pdf_url":
+                    urljoin(
+                        MICRON_EVENTS_URL,
+                        anchor[
+                            "href"
+                        ],
+                    ),
+                "release_timestamp":
+                    parse_micron_event_timestamp(
+                        anchor
+                    ),
+            }
+        )
+
+    if not candidates:
+        raise RuntimeError(
+            "No Micron Prepared Remarks "
+            "links were discovered"
+        )
+
+    def candidate_key(
+        item: dict[str, Any],
+    ) -> tuple[int, int, int]:
+        timestamp = item.get(
+            "release_timestamp"
+        )
+
+        timestamp_value = (
+            int(
+                pd.Timestamp(
+                    timestamp
+                ).value
+            )
+            if timestamp is not None
+            else 0
+        )
+
+        return (
+            int(
+                item[
+                    "fiscal_year"
+                ]
+            ),
+            int(
+                item[
+                    "fiscal_quarter"
+                ]
+            ),
+            timestamp_value,
+        )
+
+    return max(
+        candidates,
+        key=candidate_key,
+    )
+
+
+def parse_micron_quantitative_growth(
+    text: str,
+) -> dict[str, Any]:
+    normalized = normalize_document_text(
+        text
+    )
+
+    patterns = (
+        (
+            "CDBU_REVENUE_YOY",
+            r"(?:Core Data Center Business Unit "
+            r"\(CDBU\)|CDBU).{0,500}?"
+            r"(?:revenue\s+)?(?:was\s+)?"
+            r"(?:up|increased|grew)\s+"
+            r"([0-9]+(?:\.[0-9]+)?)%"
+            r"\s+(?:year over year|year-over-year)",
+            "YOY",
+            25.0,
+            20.0,
+        ),
+        (
+            "CDBU_REVENUE_QOQ",
+            r"(?:Core Data Center Business Unit "
+            r"\(CDBU\)|CDBU).{0,500}?"
+            r"(?:revenue\s+)?(?:was\s+)?"
+            r"(?:up|increased|grew)\s+"
+            r"([0-9]+(?:\.[0-9]+)?)%"
+            r"\s+(?:sequentially|quarter over quarter|"
+            r"quarter-over-quarter)",
+            "QOQ",
+            10.0,
+            15.0,
+        ),
+        (
+            "DATA_CENTER_REVENUE_YOY",
+            r"data center revenue.{0,300}?"
+            r"(?:was\s+)?(?:up|increased|grew)\s+"
+            r"([0-9]+(?:\.[0-9]+)?)%"
+            r"\s+(?:year over year|year-over-year)",
+            "YOY",
+            25.0,
+            20.0,
+        ),
+        (
+            "DATA_CENTER_REVENUE_QOQ",
+            r"data center revenue.{0,300}?"
+            r"(?:was\s+)?(?:up|increased|grew)\s+"
+            r"([0-9]+(?:\.[0-9]+)?)%"
+            r"\s+(?:sequentially|quarter over quarter|"
+            r"quarter-over-quarter)",
+            "QOQ",
+            10.0,
+            15.0,
+        ),
+        (
+            "HBM_REVENUE_YOY",
+            r"HBM(?:[0-9A-Za-z -]*)?\s+revenue"
+            r".{0,300}?"
+            r"(?:was\s+)?(?:up|increased|grew)\s+"
+            r"([0-9]+(?:\.[0-9]+)?)%"
+            r"\s+(?:year over year|year-over-year)",
+            "YOY",
+            25.0,
+            20.0,
+        ),
+        (
+            "HBM_REVENUE_QOQ",
+            r"HBM(?:[0-9A-Za-z -]*)?\s+revenue"
+            r".{0,300}?"
+            r"(?:was\s+)?(?:up|increased|grew)\s+"
+            r"([0-9]+(?:\.[0-9]+)?)%"
+            r"\s+(?:sequentially|quarter over quarter|"
+            r"quarter-over-quarter)",
+            "QOQ",
+            10.0,
+            15.0,
+        ),
+    )
+
+    for (
+        basis,
+        pattern,
+        period_basis,
+        midpoint,
+        scale,
+    ) in patterns:
+        match = re.search(
+            pattern,
+            normalized,
+            flags=(
+                re.IGNORECASE
+                | re.DOTALL
+            ),
+        )
+
+        if not match:
+            continue
+
+        growth_pct = float(
+            match.group(1)
+        )
+
+        if not (
+            -100.0
+            < growth_pct
+            < 1000.0
+        ):
+            continue
+
+        return {
+            "value":
+                growth_pct,
+            "metric_basis":
+                basis,
+            "period_basis":
+                period_basis,
+            "score":
+                logistic_score(
+                    growth_pct,
+                    midpoint=midpoint,
+                    scale=scale,
+                    higher_is_better=True,
+                ),
+            "matched_text":
+                " ".join(
+                    match.group(0).split()
+                )[:1000],
+        }
+
+    raise RuntimeError(
+        "Micron Prepared Remarks did not "
+        "contain a supported quantified "
+        "Data Center or HBM growth statement"
+    )
+
+
+def collect_micron_dc_hbm_row(
+    fetched_at: pd.Timestamp,
+) -> dict[str, Any]:
+    metadata = (
+        discover_latest_micron_prepared_remarks()
+    )
+
+    text, document_hash = (
+        download_pdf_text(
+            metadata[
+                "pdf_url"
+            ]
+        )
+    )
+
+    parsed = (
+        parse_micron_quantitative_growth(
+            text
+        )
+    )
+
+    release_timestamp = metadata.get(
+        "release_timestamp"
+    )
+
+    if release_timestamp is None:
+        release_date = (
+            parse_document_date(
+                text
+            )
+        )
+
+        release_timestamp = (
+            release_date
+            + pd.Timedelta(
+                hours=16,
+                minutes=30,
+            )
+        ).tz_localize(
+            "America/New_York"
+        ).tz_convert(
+            "UTC"
+        )
+
+    release_timestamp = pd.Timestamp(
+        release_timestamp
+    )
+
+    if release_timestamp.tzinfo is None:
+        release_timestamp = (
+            release_timestamp
+            .tz_localize(
+                "UTC"
+            )
+        )
+    else:
+        release_timestamp = (
+            release_timestamp
+            .tz_convert(
+                "UTC"
+            )
+        )
+
+    return {
+        "observation_date":
+            release_timestamp
+            .date()
+            .isoformat(),
+        "release_timestamp":
+            release_timestamp.isoformat(),
+        "effective_trade_date":
+            resolve_effective_trade_date(
+                release_timestamp
+            ),
+        "company":
+            "MU",
+        "metric":
+            "micron_dc_hbm_score",
+        "value":
+            round(
+                float(
+                    parsed[
+                        "value"
+                    ]
+                ),
+                6,
+            ),
+        "score":
+            round(
+                float(
+                    parsed[
+                        "score"
+                    ]
+                ),
+                4,
+            ),
+        "source":
+            "MICRON_PREPARED_REMARKS_"
+            "QUANTITATIVE_PROXY",
+        "is_proxy":
+            True,
+        "fetched_at":
+            fetched_at.isoformat(),
+        "source_id":
+            document_hash,
+        "period_basis":
+            parsed[
+                "period_basis"
+            ],
+        "metric_basis":
+            parsed[
+                "metric_basis"
+            ],
+        "document_url":
+            metadata[
+                "pdf_url"
+            ],
+        "document_sha256":
+            document_hash,
+        "document_title":
+            metadata[
+                "title"
+            ],
+        "fiscal_year":
+            metadata[
+                "fiscal_year"
+            ],
+        "fiscal_quarter":
+            metadata[
+                "fiscal_quarter"
+            ],
+        "matched_text":
+            parsed[
+                "matched_text"
+            ],
+        "observation_date_is_release_proxy":
+            True,
+    }
+
+
+
 def collect_ai_cycle() -> None:
     """
-    Collect two free AI-cycle proxies with conservative calibration:
+    Collect four AI-cycle inputs:
 
     1. NVIDIA quarterly total-revenue YoY proxy.
-    2. Hyperscaler CapEx YoY using a common duration basis and
-       aggregate-dollar weighting rather than a simple average.
+    2. Hyperscaler CapEx YoY, amount weighted.
+    3. TSMC HPC revenue-growth proxy from official presentations.
+    4. Micron Data Center / HBM growth from official Prepared Remarks.
 
-    TSMC HPC and Micron HBM remain unavailable until reliable
-    machine-readable disclosures are supplied.
+    TSMC and Micron remain proxy rows because their values are derived
+    from official disclosure text rather than standardized XBRL fields.
     """
 
     fetched_at = utc_now()
@@ -2576,6 +3612,49 @@ def collect_ai_cycle() -> None:
                             2,
                         ),
                 }
+            )
+
+    # --------------------------------------------------------
+    # TSMC HPC and Micron DC/HBM official-disclosure proxies
+    # --------------------------------------------------------
+    for source_name, collector in (
+        (
+            "TSMC HPC",
+            collect_tsmc_hpc_growth_row,
+        ),
+        (
+            "Micron DC/HBM",
+            collect_micron_dc_hbm_row,
+        ),
+    ):
+        try:
+            row = collector(
+                fetched_at
+            )
+
+            rows.append(
+                row
+            )
+
+            LOGGER.info(
+                "%s AI Cycle row accepted: "
+                "value=%s score=%s basis=%s",
+                source_name,
+                row.get(
+                    "value"
+                ),
+                row.get(
+                    "score"
+                ),
+                row.get(
+                    "metric_basis"
+                ),
+            )
+
+        except Exception:
+            LOGGER.exception(
+                "%s AI Cycle source failed",
+                source_name,
             )
 
     if not rows:
