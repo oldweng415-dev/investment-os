@@ -1444,15 +1444,15 @@ def collect_cftc_positioning() -> None:
         params={
             "$select": ",".join(
                 [
-                    "report_date_as_yyyy_mm_dd",
-                    "market_and_exchange_names",
-                    "contract_market_name",
-                    "cftc_contract_market_code",
-                    "open_interest_all",
-                    "lev_money_positions_long_all",
-                    "lev_money_positions_short_all",
+                     "report_date_as_yyyy_mm_dd",
+                     "market_and_exchange_names",
+                     "contract_market_name",
+                     "cftc_contract_market_code",
+                     "open_interest_all",
+                     "lev_money_positions_long",
+                     "lev_money_positions_short",
                 ]
-            ),
+             ),
             "$limit":
                 50000,
             "$order":
@@ -1481,8 +1481,8 @@ def collect_cftc_positioning() -> None:
     required = {
         "report_date_as_yyyy_mm_dd",
         "open_interest_all",
-        "lev_money_positions_long_all",
-        "lev_money_positions_short_all",
+        "lev_money_positions_long",
+        "lev_money_positions_short",
     }
 
     missing = (
@@ -1556,8 +1556,8 @@ def collect_cftc_positioning() -> None:
 
     numeric_columns = (
         "open_interest_all",
-        "lev_money_positions_long_all",
-        "lev_money_positions_short_all",
+        "lev_money_positions_long",
+        "lev_money_positions_short",
     )
 
     for column in numeric_columns:
@@ -1607,10 +1607,10 @@ def collect_cftc_positioning() -> None:
         100.0
         * (
             grouped[
-                "lev_money_positions_long_all"
+                "lev_money_positions_long"
             ]
             - grouped[
-                "lev_money_positions_short_all"
+                "lev_money_positions_short"
             ]
         )
         / grouped[
