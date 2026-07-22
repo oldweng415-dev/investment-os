@@ -594,6 +594,95 @@ def collect_gdpnow() -> None:
         ],
     )
 
+def collect_cboe_put_call() -> None:
+    response = SESSION.get(
+        "https://www.cboe.com/markets/"
+        "us/options/market-statistics/daily/",
+        timeout=(10, 60),
+    )
+
+    response.raise_for_status()
+
+    text = BeautifulSoup(
+        response.text,
+        "html.parser",
+    ).get_text(
+        " ",
+        strip=True,
+    )
+
+    match = re.search(
+        r"EQUITY\s+PUT/CALL\s+RATIO"
+        r"\s+([0-9]+(?:\.[0-9]+)?)",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        raise RuntimeError(
+            "Unable to parse Cboe "
+            "Equity Put/Call Ratio"
+        )
+
+    value = float(
+        match.group(1)
+    )
+
+    fetched_at = pd.Timestamp.now(
+        tz="UTC"
+    )
+
+    score = float(
+        100.0
+        / (
+            1.0
+            + np.exp(
+                -(value - 0.70)
+                / 0.12
+            )
+        )
+    )
+
+    rows = pd.DataFrame(
+        [
+            {
+                "observation_date":
+                    latest_completed_nyse_session(
+                        fetched_at
+                    ),
+                "release_timestamp":
+                    fetched_at.isoformat(),
+                "effective_trade_date":
+                    resolve_effective_trade_date(
+                        fetched_at
+                    ),
+                "metric":
+                    "equity_put_call",
+                "value":
+                    round(value, 4),
+                "score":
+                    round(score, 4),
+                "source":
+                    "CBOE_DAILY_STATISTICS",
+                "is_proxy":
+                    False,
+                "fetched_at":
+                    fetched_at.isoformat(),
+            }
+        ]
+    )
+
+    append_pit_csv(
+        Path(
+            "data/positioning_pit.csv"
+        ),
+        rows,
+        [
+            "observation_date",
+            "metric",
+            "source",
+        ],
+    )
 
 def main() -> None:
     collect_sec_valuation()
