@@ -107,6 +107,56 @@ class Config:
 CFG = Config()
 
 
+def normalize_missing_labels(
+    items: Iterable[str],
+) -> List[str]:
+    """
+    Remove duplicate diagnostic labels such as:
+
+    - cftc_or_flow + cftc_or_flow_score -> cftc_or_flow
+    - tsmc_hpc_growth + tsmc_hpc_growth_score -> tsmc_hpc_growth
+    - micron_dc_hbm_score_score -> micron_dc_hbm_score
+    """
+
+    cleaned: set[str] = set()
+
+    for raw_item in items:
+        label = str(
+            raw_item
+        ).strip()
+
+        if not label:
+            continue
+
+        while label.endswith(
+            "_score_score"
+        ):
+            label = label[:-6]
+
+        cleaned.add(
+            label
+        )
+
+    for label in list(
+        cleaned
+    ):
+        if not label.endswith(
+            "_score"
+        ):
+            continue
+
+        base_label = label[:-6]
+
+        if base_label in cleaned:
+            cleaned.discard(
+                label
+            )
+
+    return sorted(
+        cleaned
+    )
+
+
 @dataclass
 class AlignedSeries:
     value: pd.Series
@@ -136,7 +186,7 @@ class ModuleResult:
             "coverage": number(self.coverage.get(date), 4),
             "is_proxy": self.is_proxy,
             "effective_weights": effective_weights(self.components.loc[:date].tail(1), self.weights),
-            "missing_inputs": sorted(set(self.missing_inputs)),
+            "missing_inputs": normalize_missing_labels(self.missing_inputs),
             "stale_inputs": sorted(set(self.stale_inputs)),
             "last_updated": date.date().isoformat(),
         }
@@ -3528,12 +3578,10 @@ def build_output(
         }
     )
 
-    missing = sorted(
-        {
-            item
-            for result in modules.values()
-            for item in result.missing_inputs
-        }
+    missing = normalize_missing_labels(
+        item
+        for result in modules.values()
+        for item in result.missing_inputs
     )
 
     proxy = sorted(
