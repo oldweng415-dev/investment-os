@@ -487,6 +487,113 @@ def collect_sec_valuation() -> None:
     )
     LOGGER.info("Output: %s", OUTPUT_FILE)
 
+def collect_gdpnow() -> None:
+    response = SESSION.get(
+        "https://api.stlouisfed.org/"
+        "fred/series/observations",
+        params={
+            "series_id": "GDPNOW",
+            "api_key": FRED_API_KEY,
+            "file_type": "json",
+            "observation_start": "2012-01-01",
+        },
+        timeout=(10, 60),
+    )
+
+    response.raise_for_status()
+
+    frame = pd.DataFrame(
+        response.json().get(
+            "observations",
+            [],
+        )
+    )
+
+    if frame.empty:
+        raise RuntimeError(
+            "FRED GDPNOW returned no rows"
+        )
+
+    frame["date"] = pd.to_datetime(
+        frame["date"],
+        errors="coerce",
+    )
+
+    frame["value"] = pd.to_numeric(
+        frame["value"],
+        errors="coerce",
+    )
+
+    frame = frame.dropna(
+        subset=[
+            "date",
+            "value",
+        ]
+    ).sort_values("date")
+
+    latest = frame.iloc[-1]
+    fetched_at = pd.Timestamp.now(
+        tz="UTC"
+    )
+
+    value = float(
+        latest["value"]
+    )
+
+    score = float(
+        100.0
+        / (
+            1.0
+            + np.exp(
+                -(value - 1.5)
+                / 1.25
+            )
+        )
+    )
+
+    rows = pd.DataFrame(
+        [
+            {
+                "observation_date":
+                    latest["date"]
+                    .date()
+                    .isoformat(),
+                "release_timestamp":
+                    fetched_at.isoformat(),
+                "effective_trade_date":
+                    resolve_effective_trade_date(
+                        fetched_at
+                    ),
+                "metric":
+                    "gdpnow_real_gdp_saar",
+                "value":
+                    round(value, 4),
+                "score":
+                    round(score, 4),
+                "source":
+                    "FRED:GDPNOW",
+                # API observations沒有正式盤中發布時間，
+                # fetched_at 是保守代理。
+                "is_proxy":
+                    True,
+                "fetched_at":
+                    fetched_at.isoformat(),
+            }
+        ]
+    )
+
+    append_pit_csv(
+        Path(
+            "data/macro_nowcast_pit.csv"
+        ),
+        rows,
+        [
+            "observation_date",
+            "metric",
+            "source",
+        ],
+    )
+
 
 def main() -> None:
     collect_sec_valuation()
