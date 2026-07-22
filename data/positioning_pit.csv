@@ -1,2 +1,2 @@
 observation_date,release_timestamp,effective_trade_date,metric,value,score,source,is_proxy,fetched_at
-2019-10-04,2026-07-22T04:37:20.100804+00:00,2026-07-22,equity_put_call,0.65,39.7315,CBOE_EQUITY_PC_CSV,True,2026-07-22T04:37:20.100804+00:00
+2019-10-04,2026-07-22T04:38:43.019894+00:00,2026-07-22,equity_put_call,0.65,39.7315,CBOE_EQUITY_PC_CSV,True,2026-07-22T04:38:43.019894+00:00
