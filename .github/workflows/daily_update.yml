@@ -41,6 +41,7 @@ jobs:
       INVESTMENT_OS_DATA_MODE: live_public
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
       SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+      CFTC_APP_TOKEN: ${{ secrets.CFTC_APP_TOKEN }}
 
     steps:
       # ======================================================
@@ -87,6 +88,7 @@ jobs:
 
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install "beautifulsoup4>=4.12" "lxml>=5.0" "pandas-market-calendars>=4.4"
 
       # ======================================================
       # 5. 還原 FRED 快取
@@ -122,9 +124,9 @@ jobs:
           echo "SEC_USER_AGENT is configured."
 
       # ======================================================
-      # 7. 收集並驗證免費 SEC Valuation
+      # 7. 收集並驗證免費公開 PIT 資料
       # ======================================================
-      - name: Collect and validate free SEC valuation
+      - name: Collect and validate free public PIT data
         shell: bash
         run: |
           set -euo pipefail
@@ -132,19 +134,11 @@ jobs:
           echo "Working directory:"
           pwd
 
-          echo "Collector file:"
-          ls -l collectors/collect_free_data.py
-
-          echo "Collector ending:"
-          tail -n 12 collectors/collect_free_data.py
-
           python -m py_compile collectors/collect_free_data.py
           python -u collectors/collect_free_data.py
 
           if [ ! -s "data/valuation_pit.csv" ]; then
             echo "::error::data/valuation_pit.csv was not generated."
-            echo "Current data directory:"
-            find data -maxdepth 2 -type f -print 2>/dev/null | sort || true
             exit 1
           fi
 
@@ -152,39 +146,94 @@ jobs:
           from pathlib import Path
           import pandas as pd
 
-          path = Path("data/valuation_pit.csv")
-          frame = pd.read_csv(path)
-
-          required_columns = {
-              "observation_date",
-              "release_timestamp",
-              "effective_trade_date",
-              "asset",
-              "metric",
-              "value",
-              "score",
-              "source",
-              "is_proxy",
+          schemas = {
+              "data/valuation_pit.csv": {
+                  "observation_date",
+                  "release_timestamp",
+                  "effective_trade_date",
+                  "asset",
+                  "metric",
+                  "value",
+                  "score",
+                  "source",
+                  "is_proxy",
+              },
+              "data/macro_nowcast_pit.csv": {
+                  "observation_date",
+                  "release_timestamp",
+                  "effective_trade_date",
+                  "metric",
+                  "value",
+                  "score",
+                  "source",
+                  "is_proxy",
+              },
+              "data/positioning_pit.csv": {
+                  "observation_date",
+                  "release_timestamp",
+                  "effective_trade_date",
+                  "metric",
+                  "value",
+                  "score",
+                  "source",
+                  "is_proxy",
+              },
+              "data/ai_cycle_pit.csv": {
+                  "observation_date",
+                  "release_timestamp",
+                  "effective_trade_date",
+                  "company",
+                  "metric",
+                  "value",
+                  "score",
+                  "source",
+                  "is_proxy",
+              },
+              "data/events.csv": {
+                  "event_date",
+                  "asset",
+                  "event_type",
+                  "description",
+                  "source",
+              },
           }
 
-          missing_columns = required_columns - set(frame.columns)
-          if missing_columns:
-              raise AssertionError(
-                  "valuation_pit.csv missing columns: "
-                  f"{sorted(missing_columns)}"
-              )
+          for filename, required in schemas.items():
+              path = Path(filename)
 
-          required_metrics = {
+              if not path.exists():
+                  print(f"WARNING: {filename} was not collected this run.")
+                  continue
+
+              frame = pd.read_csv(path)
+              missing = required - set(frame.columns)
+
+              if missing:
+                  raise AssertionError(
+                      f"{filename} missing columns: {sorted(missing)}"
+                  )
+
+              if frame.empty:
+                  raise AssertionError(f"{filename} is empty")
+
+              print(f"{filename}: {len(frame)} rows")
+              print(frame.tail(5).to_string(index=False))
+
+          valuation = pd.read_csv("data/valuation_pit.csv")
+          required_valuation_metrics = {
               "trailing_pe",
               "earnings_yield",
               "fcf_yield",
               "erp",
           }
-
-          actual_metrics = set(
-              frame["metric"].dropna().astype(str).str.lower()
+          actual_valuation_metrics = set(
+              valuation["metric"].dropna().astype(str).str.lower()
           )
-          missing_metrics = required_metrics - actual_metrics
+
+          missing_metrics = (
+              required_valuation_metrics
+              - actual_valuation_metrics
+          )
 
           if missing_metrics:
               raise AssertionError(
@@ -192,17 +241,13 @@ jobs:
                   f"{sorted(missing_metrics)}"
               )
 
-          if frame.empty:
-              raise AssertionError("valuation_pit.csv is empty")
-
-          print("valuation_pit.csv validation passed.")
-          print(frame.tail(4).to_string(index=False))
+          print("Free public PIT validation completed.")
           PY
 
       # ======================================================
-      # 8. 保存免費 Valuation PIT 歷史
+      # 8. 保存免費 PIT 歷史
       # ======================================================
-      - name: Commit collected valuation data
+      - name: Commit collected PIT data
         shell: bash
         run: |
           set -euo pipefail
@@ -211,13 +256,23 @@ jobs:
           git config user.email \
             "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add data/valuation_pit.csv
+          for file in \
+            data/valuation_pit.csv \
+            data/macro_nowcast_pit.csv \
+            data/positioning_pit.csv \
+            data/ai_cycle_pit.csv \
+            data/events.csv
+          do
+            if [ -f "$file" ]; then
+              git add "$file"
+            fi
+          done
 
           if git diff --cached --quiet; then
-            echo "No valuation data changes."
+            echo "No PIT data changes."
           else
             git commit \
-              -m "Update free SEC valuation data [skip ci]"
+              -m "Update free public PIT data [skip ci]"
 
             git push origin HEAD:main
           fi
