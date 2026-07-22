@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-07-21",
   "decision_date": "2026-07-22",
-  "generated_at": "2026-07-22T06:48:37.435441+00:00",
+  "generated_at": "2026-07-22T06:55:54.597897+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -90,9 +90,7 @@
       },
       "missing_inputs": [
         "micron_dc_hbm_score",
-        "micron_dc_hbm_score_score",
-        "tsmc_hpc_growth",
-        "tsmc_hpc_growth_score"
+        "tsmc_hpc_growth"
       ],
       "stale_inputs": [],
       "last_updated": "2026-07-21"
@@ -175,9 +173,7 @@
     "missing_series": [
       "forward_estimates_unavailable",
       "micron_dc_hbm_score",
-      "micron_dc_hbm_score_score",
-      "tsmc_hpc_growth",
-      "tsmc_hpc_growth_score"
+      "tsmc_hpc_growth"
     ],
     "proxy_modules": [
       "ai_cycle",
