@@ -1444,15 +1444,15 @@ def collect_cftc_positioning() -> None:
         params={
             "$select": ",".join(
                 [
-                     "report_date_as_yyyy_mm_dd",
-                     "market_and_exchange_names",
-                     "contract_market_name",
-                     "cftc_contract_market_code",
-                     "open_interest_all",
-                     "lev_money_positions_long",
-                     "lev_money_positions_short",
+                    "report_date_as_yyyy_mm_dd",
+                    "market_and_exchange_names",
+                    "contract_market_name",
+                    "cftc_contract_market_code",
+                    "open_interest_all",
+                    "lev_money_positions_long",
+                    "lev_money_positions_short",
                 ]
-             ),
+            ),
             "$limit":
                 50000,
             "$order":
@@ -1465,7 +1465,12 @@ def collect_cftc_positioning() -> None:
         timeout=(10, 120),
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(
+            "CFTC API request failed: "
+            f"status={response.status_code}; "
+            f"body={response.text[:1000]}"
+        )
 
     records = response.json()
 
@@ -2614,6 +2619,85 @@ def collect_ai_cycle() -> None:
     )
 
 
+def repair_legacy_iv30_units() -> None:
+    """
+    Repair historical IV30 rows that were written as decimal fractions.
+
+    Example:
+        0.1963 -> 19.63
+    """
+
+    if not POSITIONING_FILE.exists():
+        return
+
+    frame = pd.read_csv(
+        POSITIONING_FILE
+    )
+
+    required = {
+        "metric",
+        "value",
+        "source",
+    }
+
+    if not required.issubset(
+        frame.columns
+    ):
+        return
+
+    metric = (
+        frame["metric"]
+        .fillna("")
+        .astype(str)
+        .str.lower()
+    )
+
+    source = (
+        frame["source"]
+        .fillna("")
+        .astype(str)
+    )
+
+    values = pd.to_numeric(
+        frame["value"],
+        errors="coerce",
+    )
+
+    legacy_mask = (
+        metric.eq("iv30")
+        & source.eq(
+            "YFINANCE_QQQ_OPTIONS_PROXY"
+        )
+        & values.gt(0)
+        & values.lt(2)
+    )
+
+    if not legacy_mask.any():
+        return
+
+    frame.loc[
+        legacy_mask,
+        "value",
+    ] = (
+        values.loc[
+            legacy_mask
+        ]
+        * 100.0
+    )
+
+    frame.to_csv(
+        POSITIONING_FILE,
+        index=False,
+    )
+
+    LOGGER.info(
+        "Repaired %s legacy IV30 rows",
+        int(
+            legacy_mask.sum()
+        ),
+    )
+
+
 def collect_options_metrics() -> None:
     """
     Collect a free QQQ options-volatility proxy.
@@ -2626,6 +2710,8 @@ def collect_options_metrics() -> None:
     yfinance does not provide a verified delta, so this collector
     must not enable an exact strike recommendation.
     """
+
+    repair_legacy_iv30_units()
 
     ticker = yf.Ticker(
         OPTIONS_UNDERLYING
