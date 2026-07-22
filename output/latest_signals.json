@@ -1,36 +1,36 @@
 {
-  "signal_date": "2026-07-20",
-  "decision_date": "2026-07-21",
-  "generated_at": "2026-07-21T12:25:23.518449+00:00",
+  "signal_date": "2026-07-21",
+  "decision_date": "2026-07-22",
+  "generated_at": "2026-07-22T04:08:38.095459+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
-    "Buy_Score": 53.96,
-    "Risk_Score": 41.96,
-    "Margin_Score": 48.12,
-    "Carry_Score": 15.89
+    "Buy_Score": 54.92,
+    "Risk_Score": 39.57,
+    "Margin_Score": 48.97,
+    "Carry_Score": 15.65
   },
   "modules": {
-    "Market_Regime": 75.77,
+    "Market_Regime": 76.33,
     "AI_Cycle": null,
-    "Valuation": 30.13,
-    "Macro": 43.82,
-    "Liquidity": 54.74,
-    "Positioning": 62.74
+    "Valuation": 30.07,
+    "Macro": 48.01,
+    "Liquidity": 55.93,
+    "Positioning": 62.01
   },
   "allocation": {
-    "Target_Margin_Pct": 1.0,
+    "Target_Margin_Pct": 0.0,
     "Target_Cash_Min_Pct": 15,
     "Target_Cash_Max_Pct": 25
   },
   "covered_call": {
-    "status": "HOLD_EXISTING_CC",
+    "status": "STOP_NEW_CC",
     "reason": [
-      "Event_check_unavailable"
+      "Critical_data_unavailable_or_stale"
     ],
     "strike_recommendation_available": false
   },
-  "action": "僅限核心 ETF 小量分批；目標融資 1.0%，現金 15%–25%。",
+  "action": "禁止新增融資；建議現金 15%–25%，保留核心持股與風險彈性。",
   "effective_module_weights": {
     "buy": {
       "market_regime": 0.294118,
@@ -56,7 +56,7 @@
   },
   "module_data_quality": {
     "market_regime": {
-      "score": 75.77,
+      "score": 76.33,
       "available": true,
       "coverage": 0.85,
       "is_proxy": true,
@@ -68,7 +68,7 @@
       },
       "missing_inputs": [],
       "stale_inputs": [],
-      "last_updated": "2026-07-20"
+      "last_updated": "2026-07-21"
     },
     "ai_cycle": {
       "score": null,
@@ -80,10 +80,10 @@
         "ai_cycle_pit.csv"
       ],
       "stale_inputs": [],
-      "last_updated": "2026-07-20"
+      "last_updated": "2026-07-21"
     },
     "valuation": {
-      "score": 30.13,
+      "score": 30.07,
       "available": true,
       "coverage": 1.0,
       "is_proxy": true,
@@ -95,43 +95,45 @@
       },
       "missing_inputs": [],
       "stale_inputs": [],
-      "last_updated": "2026-07-20"
+      "last_updated": "2026-07-21"
     },
     "macro": {
-      "score": 43.82,
+      "score": 48.01,
       "available": true,
-      "coverage": 0.9,
+      "coverage": 0.65,
       "is_proxy": true,
       "effective_weights": {
-        "core_pce": 0.277778,
-        "employment_gap": 0.222222,
-        "initial_claims": 0.277778,
-        "yield_curve": 0.222222
+        "employment_gap": 0.307692,
+        "initial_claims": 0.384615,
+        "yield_curve": 0.307692
       },
       "missing_inputs": [
         "macro_nowcast_pit.csv"
       ],
-      "stale_inputs": [],
-      "last_updated": "2026-07-20"
+      "stale_inputs": [
+        "PCEPILFE"
+      ],
+      "last_updated": "2026-07-21"
     },
     "liquidity": {
-      "score": 54.74,
+      "score": 55.93,
       "available": true,
-      "coverage": 1.0,
+      "coverage": 0.9,
       "is_proxy": true,
       "effective_weights": {
-        "nfl_13w_change": 0.35,
-        "reserve_balances": 0.25,
-        "rrp_inverse": 0.15,
-        "tga_inverse": 0.15,
-        "real_m2": 0.1
+        "nfl_13w_change": 0.388889,
+        "reserve_balances": 0.277778,
+        "rrp_inverse": 0.166667,
+        "tga_inverse": 0.166667
       },
       "missing_inputs": [],
-      "stale_inputs": [],
-      "last_updated": "2026-07-20"
+      "stale_inputs": [
+        "M2REAL"
+      ],
+      "last_updated": "2026-07-21"
     },
     "positioning": {
-      "score": 62.74,
+      "score": 62.01,
       "available": true,
       "coverage": 0.55,
       "is_proxy": false,
@@ -145,16 +147,19 @@
         "equity_put_call"
       ],
       "stale_inputs": [],
-      "last_updated": "2026-07-20"
+      "last_updated": "2026-07-21"
     }
   },
   "data_quality": {
-    "coverage_ratio": 0.735,
-    "buy_coverage": 0.7125,
-    "risk_coverage": 0.79,
-    "margin_coverage": 0.835,
-    "critical_data_ok": true,
-    "stale_series": [],
+    "coverage_ratio": 0.6735,
+    "buy_coverage": 0.6775,
+    "risk_coverage": 0.715,
+    "margin_coverage": 0.785,
+    "critical_data_ok": false,
+    "stale_series": [
+      "M2REAL",
+      "PCEPILFE"
+    ],
     "missing_series": [
       "ai_cycle_pit.csv",
       "cftc_or_flow",
@@ -174,48 +179,48 @@
   },
   "risk_overrides": [],
   "decision_reasons": [
-    "Small_ETF_accumulation_zone"
+    "Critical_data_stale"
   ],
   "modifiers": {
     "panic_bonus": 0.0,
     "euphoria_penalty": 0.0,
-    "expected_return_spread_pct_points": -3.3335
+    "expected_return_spread_pct_points": -3.3686
   },
   "upcoming_events": [],
   "raw_indicators": {
-    "market_regime.spy_trend_distance": 0.0723,
-    "market_regime.qqq_trend_distance": 0.0994,
-    "market_regime.soxx_trend_distance": 0.3774,
+    "market_regime.spy_trend_distance": 0.0725,
+    "market_regime.qqq_trend_distance": 0.1011,
+    "market_regime.soxx_trend_distance": 0.3863,
     "market_regime.breadth_score": 100.0,
-    "market_regime.hy_oas": 2.73,
+    "market_regime.hy_oas": 2.69,
     "market_regime.hy_oas_percentile": null,
-    "valuation.trailing_pe": 33.5959,
-    "valuation.fcf_yield": 1.7862,
-    "valuation.earnings_yield": 2.9766,
-    "valuation.erp": 0.6665,
-    "macro.core_pce_3m_annualized": 3.5226,
+    "valuation.trailing_pe": 33.5409,
+    "valuation.fcf_yield": 1.7891,
+    "valuation.earnings_yield": 2.9814,
+    "valuation.erp": 0.6314,
+    "macro.core_pce_3m_annualized": null,
     "macro.sahm_style_gap": 0.0667,
     "macro.claims_4w_26w_ratio": 1.0039,
     "macro.yield_curve_stress": 0.0,
     "liquidity.walcl_bn": 6743.028,
     "liquidity.tga_bn": 756.218,
-    "liquidity.rrp_bn": 0.1,
-    "liquidity.net_fed_liquidity_bn": 5986.71,
-    "liquidity.nfl_13w_change_bn": 41.521,
-    "liquidity.nfl_26w_change_bn": 212.339,
-    "liquidity.nfl_13w_percentile": 59.9802,
+    "liquidity.rrp_bn": 0.03,
+    "liquidity.net_fed_liquidity_bn": 5986.78,
+    "liquidity.nfl_13w_change_bn": 41.508,
+    "liquidity.nfl_26w_change_bn": 212.606,
+    "liquidity.nfl_13w_percentile": 59.9405,
     "liquidity.nfl_formula_check_bn": 0.0,
     "liquidity.reserve_balances_bn": 3142.721,
-    "liquidity.real_m2_yoy": 1.5268,
-    "positioning.vix": 18.65,
-    "positioning.vix_percentile": 54.5437,
+    "liquidity.real_m2_yoy": null,
+    "positioning.vix": 17.05,
+    "positioning.vix_percentile": 52.996,
     "positioning.vix3m": null,
     "positioning.vix_term_ratio": null,
     "positioning.vix_backwardation": 0.0,
-    "positioning.skew": 146.05,
-    "positioning.skew_percentile": 82.5992,
-    "positioning.vvix": 102.82,
-    "positioning.vvix_percentile": 56.5278
+    "positioning.skew": 151.66,
+    "positioning.skew_percentile": 85.6151,
+    "positioning.vvix": 96.34,
+    "positioning.vvix_percentile": 53.4325
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
