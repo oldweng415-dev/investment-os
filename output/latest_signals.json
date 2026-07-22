@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-07-21",
   "decision_date": "2026-07-22",
-  "generated_at": "2026-07-22T06:55:54.597897+00:00",
+  "generated_at": "2026-07-22T07:10:09.306091+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -30,9 +30,9 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 0.1963,
+    "iv30_pct": 19.6311,
     "rv20_pct": 25.5677,
-    "iv_minus_rv_pct_points": -25.3714,
+    "iv_minus_rv_pct_points": -5.9366,
     "strike_recommendation_available": false
   },
   "action": "僅限核心 ETF 小量分批；目標融資 2.7%，現金 15%–25%。",
@@ -184,20 +184,19 @@
       "valuation"
     ],
     "unavailable_modules": [],
-    "event_check_available": false,
+    "event_check_available": true,
     "event_calendar": {
-      "status": "partial",
+      "status": "complete",
       "checks": {
         "required_asset_scopes": true,
         "fomc_calendar": true,
         "bls_major_calendar": true,
-        "bea_gdp_or_pce_calendar": false,
+        "bea_gdp_or_pce_calendar": true,
         "five_company_earnings": true
       },
-      "missing_checks": [
-        "bea_gdp_or_pce_calendar"
-      ],
+      "missing_checks": [],
       "sources": [
+        "BEA_RELEASE_SCHEDULE",
         "BLS_ICS",
         "FED_FOMC_CALENDAR",
         "YFINANCE_EARNINGS_PROXY"
@@ -263,6 +262,22 @@
       "is_proxy": true
     },
     {
+      "event_date": "2026-07-30T00:00:00",
+      "asset": "MARKET",
+      "event_type": "macro_release",
+      "description": "Gross Domestic Product",
+      "source": "BEA_RELEASE_SCHEDULE",
+      "is_proxy": false
+    },
+    {
+      "event_date": "2026-07-30T00:00:00",
+      "asset": "MARKET",
+      "event_type": "macro_release",
+      "description": "Personal Income and Outlays",
+      "source": "BEA_RELEASE_SCHEDULE",
+      "is_proxy": false
+    },
+    {
       "event_date": "2026-07-31T00:00:00",
       "asset": "MARKET",
       "event_type": "macro_release",
@@ -310,9 +325,9 @@
     "positioning.vvix_percentile": 53.4325,
     "positioning.equity_put_call": 0.65,
     "positioning.cftc_positioning": -45.5442,
-    "positioning.iv30": 0.1963,
+    "positioning.iv30": 19.6311,
     "positioning.rv20": 25.5677,
-    "positioning.iv_rv_spread": -25.3714
+    "positioning.iv_rv_spread": -5.9366
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
