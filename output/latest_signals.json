@@ -1,13 +1,13 @@
 {
   "signal_date": "2026-07-21",
   "decision_date": "2026-07-22",
-  "generated_at": "2026-07-22T06:40:44.884719+00:00",
+  "generated_at": "2026-07-22T06:48:37.435441+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
-    "Buy_Score": 63.03,
-    "Risk_Score": 36.56,
-    "Margin_Score": 52.72,
+    "Buy_Score": 63.76,
+    "Risk_Score": 36.2,
+    "Margin_Score": 53.23,
     "Carry_Score": 16.61
   },
   "modules": {
@@ -16,10 +16,10 @@
     "Valuation": 33.63,
     "Macro": 44.8,
     "Liquidity": 54.72,
-    "Positioning": 69.42
+    "Positioning": 72.32
   },
   "allocation": {
-    "Target_Margin_Pct": 2.6,
+    "Target_Margin_Pct": 2.7,
     "Target_Cash_Min_Pct": 15,
     "Target_Cash_Max_Pct": 25
   },
@@ -35,7 +35,7 @@
     "iv_minus_rv_pct_points": -25.3714,
     "strike_recommendation_available": false
   },
-  "action": "僅限核心 ETF 小量分批；目標融資 2.6%，現金 15%–25%。",
+  "action": "僅限核心 ETF 小量分批；目標融資 2.7%，現金 15%–25%。",
   "effective_module_weights": {
     "buy": {
       "market_regime": 0.25,
@@ -147,36 +147,32 @@
       "last_updated": "2026-07-21"
     },
     "positioning": {
-      "score": 69.42,
+      "score": 72.32,
       "available": true,
-      "coverage": 0.9,
+      "coverage": 1.0,
       "is_proxy": true,
       "effective_weights": {
-        "vix_percentile": 0.277778,
-        "vix_term_structure": 0.277778,
-        "skew": 0.166667,
-        "vvix": 0.166667,
-        "put_call": 0.111111
+        "vix_percentile": 0.25,
+        "vix_term_structure": 0.25,
+        "skew": 0.15,
+        "vvix": 0.15,
+        "put_call": 0.1,
+        "cftc_or_flow": 0.1
       },
-      "missing_inputs": [
-        "cftc_or_flow",
-        "cftc_or_flow_score"
-      ],
+      "missing_inputs": [],
       "stale_inputs": [],
       "last_updated": "2026-07-21"
     }
   },
   "data_quality": {
-    "coverage_ratio": 0.955,
-    "buy_coverage": 0.95,
-    "risk_coverage": 0.97,
-    "margin_coverage": 0.975,
+    "coverage_ratio": 0.972,
+    "buy_coverage": 0.97,
+    "risk_coverage": 0.98,
+    "margin_coverage": 0.99,
     "critical_data_ok": true,
     "critical_stale_series": [],
     "stale_series": [],
     "missing_series": [
-      "cftc_or_flow",
-      "cftc_or_flow_score",
       "forward_estimates_unavailable",
       "micron_dc_hbm_score",
       "micron_dc_hbm_score_score",
@@ -317,6 +313,7 @@
     "positioning.vvix": 96.34,
     "positioning.vvix_percentile": 53.4325,
     "positioning.equity_put_call": 0.65,
+    "positioning.cftc_positioning": -45.5442,
     "positioning.iv30": 0.1963,
     "positioning.rv20": 25.5677,
     "positioning.iv_rv_spread": -25.3714
