@@ -1,25 +1,25 @@
 {
   "signal_date": "2026-07-23",
   "decision_date": "2026-07-24",
-  "generated_at": "2026-07-24T02:07:02.717879+00:00",
+  "generated_at": "2026-07-24T02:43:14.052259+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
-    "Buy_Score": 67.59,
-    "Risk_Score": 35.16,
-    "Margin_Score": 57.03,
+    "Buy_Score": 68.06,
+    "Risk_Score": 34.82,
+    "Margin_Score": 57.19,
     "Carry_Score": 22.93
   },
   "modules": {
     "Market_Regime": 76.16,
-    "AI_Cycle": 91.98,
+    "AI_Cycle": 92.71,
     "Valuation": 52.74,
     "Macro": 49.8,
     "Liquidity": 53.35,
     "Positioning": 71.28
   },
   "allocation": {
-    "Target_Margin_Pct": 4.0,
+    "Target_Margin_Pct": 4.1,
     "Target_Cash_Min_Pct": 15,
     "Target_Cash_Max_Pct": 25
   },
@@ -35,7 +35,7 @@
     "iv_minus_rv_pct_points": 2.7427,
     "strike_recommendation_available": false
   },
-  "action": "僅限核心 ETF 小量分批；目標融資 4.0%，現金 15%–25%。",
+  "action": "僅限核心 ETF 小量分批；目標融資 4.1%，現金 15%–25%。",
   "effective_module_weights": {
     "buy": {
       "market_regime": 0.25,
@@ -80,18 +80,17 @@
       "last_updated": "2026-07-23"
     },
     "ai_cycle": {
-      "score": 91.98,
+      "score": 92.71,
       "available": true,
-      "coverage": 0.9,
+      "coverage": 1.0,
       "is_proxy": true,
       "effective_weights": {
-        "nvidia_revenue_yoy_proxy": 0.388889,
-        "hyperscaler_capex_yoy": 0.5,
-        "tsmc_hpc_growth": 0.111111
+        "nvidia_revenue_yoy_proxy": 0.35,
+        "hyperscaler_capex_yoy": 0.45,
+        "tsmc_hpc_growth": 0.1,
+        "micron_dc_hbm_score": 0.1
       },
-      "missing_inputs": [
-        "micron_dc_hbm_score"
-      ],
+      "missing_inputs": [],
       "stale_inputs": [],
       "last_updated": "2026-07-23"
     },
@@ -163,16 +162,15 @@
     }
   },
   "data_quality": {
-    "coverage_ratio": 0.986,
-    "buy_coverage": 0.985,
-    "risk_coverage": 0.99,
-    "margin_coverage": 0.995,
+    "coverage_ratio": 1.0,
+    "buy_coverage": 1.0,
+    "risk_coverage": 1.0,
+    "margin_coverage": 1.0,
     "critical_data_ok": true,
     "critical_stale_series": [],
     "stale_series": [],
     "missing_series": [
-      "forward_estimates_unavailable",
-      "micron_dc_hbm_score"
+      "forward_estimates_unavailable"
     ],
     "proxy_modules": [
       "ai_cycle",
@@ -287,6 +285,7 @@
     "ai_cycle.nvidia_revenue_yoy_proxy": 85.2276,
     "ai_cycle.hyperscaler_capex_yoy": 80.454,
     "ai_cycle.tsmc_hpc_growth": 47.0569,
+    "ai_cycle.micron_dc_hbm_score": 653.2026,
     "valuation.trailing_pe": 25.2197,
     "valuation.fcf_yield": 1.7479,
     "valuation.earnings_yield": 3.9652,
