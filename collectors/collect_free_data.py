@@ -2291,10 +2291,8 @@ TSMC_QUARTERLY_ROOT = (
     "quarterly-results"
 )
 
-MICRON_QUARTERLY_RESULTS_URL = (
-    "https://investors.micron.com/"
-    "quarterly-results"
-)
+MICRON_CIK = "0000723125"
+MICRON_ARCHIVE_CIK = "723125"
 
 MONTH_PATTERN = (
     r"January|February|March|April|May|June|July|"
@@ -3000,486 +2998,909 @@ def collect_tsmc_hpc_growth_row(
     }
 
 
-def parse_micron_event_timestamp(
-    anchor: Any,
-) -> Optional[pd.Timestamp]:
-    pattern = re.compile(
-        rf"\b({MONTH_PATTERN})\s+"
-        r"(\d{1,2}),\s+(20\d{2})"
-        r"(?:\s+at\s+"
-        r"(\d{1,2}:\d{2})\s+"
-        r"(AM|PM)\s+"
-        r"(EDT|EST|MDT|MST|CDT|CST|PDT|PST))?",
-        flags=re.IGNORECASE,
-    )
+def parse_sec_acceptance_timestamp(
+    raw_value: Any,
+    filing_date: Any,
+) -> pd.Timestamp:
+    """
+    Convert SEC acceptanceDateTime into UTC.
 
-    timezone_map = {
-        "EDT": "America/New_York",
-        "EST": "America/New_York",
-        "MDT": "America/Denver",
-        "MST": "America/Denver",
-        "CDT": "America/Chicago",
-        "CST": "America/Chicago",
-        "PDT": "America/Los_Angeles",
-        "PST": "America/Los_Angeles",
-    }
+    SEC submissions normally provide a machine-readable timestamp.
+    A filing-date 16:30 America/New_York fallback is used only when
+    acceptanceDateTime is unavailable.
+    """
 
-    for text_node in anchor.find_all_previous(
-        string=True,
-        limit=120,
-    ):
-        candidate = " ".join(
-            str(text_node).split()
-        )
+    raw_text = str(
+        raw_value or ""
+    ).strip()
 
-        match = pattern.search(
-            candidate
-        )
-
-        if not match:
-            continue
-
-        date_text = (
-            f"{match.group(1)} "
-            f"{match.group(2)}, "
-            f"{match.group(3)}"
-        )
-
-        if match.group(4):
-            date_text += (
-                f" {match.group(4)} "
-                f"{match.group(5)}"
-            )
-
+    if raw_text:
         parsed = pd.to_datetime(
-            date_text,
+            raw_text,
             errors="coerce",
         )
 
-        if pd.isna(parsed):
-            continue
-
-        timestamp = pd.Timestamp(
-            parsed
-        )
-
-        if match.group(6):
-            timestamp = (
-                timestamp
-                .tz_localize(
-                    timezone_map[
-                        match.group(6).upper()
-                    ]
-                )
-                .tz_convert(
-                    "UTC"
-                )
-            )
-        else:
-            timestamp = (
-                timestamp
-                .normalize()
-                .replace(
-                    hour=16,
-                    minute=30,
-                )
-                .tz_localize(
-                    "America/New_York"
-                )
-                .tz_convert(
-                    "UTC"
-                )
+        if pd.notna(parsed):
+            timestamp = pd.Timestamp(
+                parsed
             )
 
-        return timestamp
+            if timestamp.tzinfo is None:
+                timestamp = (
+                    timestamp
+                    .tz_localize(
+                        "America/New_York"
+                    )
+                )
 
-    return None
+            return timestamp.tz_convert(
+                "UTC"
+            )
 
-
-def discover_latest_micron_prepared_remarks() -> dict[str, Any]:
-    """
-    Find the latest official Micron Prepared Remarks PDF from the
-    lighter Quarterly Results page.
-
-    The former Events & Presentations page repeatedly timed out on the
-    GitHub-hosted runner.
-    """
-
-    response = SESSION.get(
-        MICRON_QUARTERLY_RESULTS_URL,
-        headers={
-            "User-Agent":
-                "Mozilla/5.0 (X11; Linux x86_64) "
-                "AppleWebKit/537.36 "
-                "(KHTML, like Gecko) "
-                "Chrome/126.0 Safari/537.36",
-            "Accept":
-                "text/html,application/xhtml+xml,"
-                "application/xml;q=0.9,*/*;q=0.8",
-        },
-        timeout=(15, 120),
+    fallback_date = pd.to_datetime(
+        filing_date,
+        errors="coerce",
     )
 
-    if not response.ok:
+    if pd.isna(fallback_date):
         raise RuntimeError(
-            "Micron quarterly-results request failed: "
-            f"status={response.status_code}; "
-            f"body={response.text[:500]}"
+            "Micron filing has neither a valid "
+            "acceptance timestamp nor filing date"
         )
 
+    return (
+        pd.Timestamp(
+            fallback_date
+        )
+        .normalize()
+        .replace(
+            hour=16,
+            minute=30,
+        )
+        .tz_localize(
+            "America/New_York"
+        )
+        .tz_convert(
+            "UTC"
+        )
+    )
+
+
+def micron_recent_earnings_filings() -> pd.DataFrame:
+    """
+    Read Micron's official SEC submissions history and return recent
+    Form 8-K earnings filings.
+
+    Item 2.02 is the preferred filter. A looser 8-K fallback is retained
+    because older submissions may have incomplete item metadata.
+    """
+
+    payload = sec_get_json(
+        "https://data.sec.gov/submissions/"
+        f"CIK{MICRON_CIK}.json"
+    )
+
+    recent = (
+        payload
+        .get(
+            "filings",
+            {},
+        )
+        .get(
+            "recent",
+            {},
+        )
+    )
+
+    if not recent:
+        raise RuntimeError(
+            "Micron SEC submissions returned "
+            "no recent filing metadata"
+        )
+
+    frame = pd.DataFrame(
+        recent
+    )
+
+    required = {
+        "accessionNumber",
+        "filingDate",
+        "form",
+        "primaryDocument",
+    }
+
+    missing = (
+        required
+        - set(
+            frame.columns
+        )
+    )
+
+    if missing:
+        raise RuntimeError(
+            "Micron SEC submissions are missing "
+            f"columns: {sorted(missing)}"
+        )
+
+    form = (
+        frame["form"]
+        .fillna("")
+        .astype(str)
+        .str.upper()
+    )
+
+    items = (
+        frame["items"]
+        .fillna("")
+        .astype(str)
+        if "items" in frame.columns
+        else pd.Series(
+            "",
+            index=frame.index,
+        )
+    )
+
+    frame = frame.loc[
+        form.eq("8-K")
+    ].copy()
+
+    if frame.empty:
+        raise RuntimeError(
+            "Micron SEC submissions contained "
+            "no recent Form 8-K filings"
+        )
+
+    frame[
+        "is_item_202"
+    ] = items.loc[
+        frame.index
+    ].str.contains(
+        r"(?:^|,|\s)2\.02(?:,|\s|$)",
+        regex=True,
+        na=False,
+    )
+
+    acceptance = (
+        frame["acceptanceDateTime"]
+        if "acceptanceDateTime" in frame.columns
+        else pd.Series(
+            "",
+            index=frame.index,
+        )
+    )
+
+    frame[
+        "acceptance_sort"
+    ] = pd.to_datetime(
+        acceptance,
+        errors="coerce",
+        utc=True,
+    )
+
+    frame[
+        "filing_sort"
+    ] = pd.to_datetime(
+        frame["filingDate"],
+        errors="coerce",
+    )
+
+    return (
+        frame
+        .sort_values(
+            [
+                "is_item_202",
+                "acceptance_sort",
+                "filing_sort",
+            ],
+            ascending=[
+                False,
+                False,
+                False,
+            ],
+        )
+        .head(20)
+    )
+
+
+def score_micron_sec_attachment_name(
+    name: str,
+    primary_document: str,
+) -> int:
+    """
+    Rank likely earnings-release attachments within an SEC filing.
+    """
+
+    lower_name = str(
+        name
+    ).lower()
+
+    score = 0
+
+    if lower_name == str(
+        primary_document
+    ).lower():
+        score += 5
+
+    if "pressrelease" in lower_name:
+        score += 120
+
+    if "press-release" in lower_name:
+        score += 120
+
+    if "earnings" in lower_name:
+        score += 80
+
+    if re.search(
+        r"(?:^|[^0-9])ex(?:hibit)?"
+        r"[-_. ]?99[-_. ]?1",
+        lower_name,
+    ):
+        score += 100
+
+    if "ex991" in lower_name:
+        score += 100
+
+    if "99-1" in lower_name:
+        score += 90
+
+    if lower_name.endswith(
+        (
+            ".htm",
+            ".html",
+        )
+    ):
+        score += 20
+
+    if lower_name.endswith(
+        ".txt"
+    ):
+        score += 5
+
+    return score
+
+
+def filing_archive_base_url(
+    accession_number: str,
+) -> str:
+    accession_compact = (
+        str(
+            accession_number
+        )
+        .replace(
+            "-",
+            "",
+        )
+    )
+
+    return (
+        "https://www.sec.gov/Archives/edgar/data/"
+        f"{MICRON_ARCHIVE_CIK}/"
+        f"{accession_compact}"
+    )
+
+
+def micron_filing_document_names(
+    filing: pd.Series,
+) -> list[str]:
+    """
+    Obtain all filing document names from the SEC filing directory.
+    """
+
+    accession_number = str(
+        filing[
+            "accessionNumber"
+        ]
+    )
+
+    base_url = filing_archive_base_url(
+        accession_number
+    )
+
+    directory = sec_get_json(
+        f"{base_url}/index.json"
+    )
+
+    items = (
+        directory
+        .get(
+            "directory",
+            {},
+        )
+        .get(
+            "item",
+            [],
+        )
+    )
+
+    names = [
+        str(
+            item.get(
+                "name",
+                "",
+            )
+        ).strip()
+        for item in items
+        if str(
+            item.get(
+                "name",
+                "",
+            )
+        ).strip()
+    ]
+
+    primary_document = str(
+        filing.get(
+            "primaryDocument",
+            "",
+        )
+    ).strip()
+
+    if (
+        primary_document
+        and primary_document not in names
+    ):
+        names.append(
+            primary_document
+        )
+
+    eligible = [
+        name
+        for name in names
+        if name.lower().endswith(
+            (
+                ".htm",
+                ".html",
+                ".txt",
+            )
+        )
+        and not name.lower().endswith(
+            (
+                "-index.htm",
+                "-index.html",
+            )
+        )
+    ]
+
+    return sorted(
+        set(
+            eligible
+        ),
+        key=lambda name: (
+            score_micron_sec_attachment_name(
+                name,
+                primary_document,
+            ),
+            name,
+        ),
+        reverse=True,
+    )
+
+
+def parse_micron_fiscal_period(
+    text: str,
+) -> tuple[
+    Optional[int],
+    Optional[int],
+]:
+    """
+    Parse fiscal quarter and fiscal year from the earnings-release title.
+    """
+
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        normalize_document_text(
+            text
+        ),
+    )
+
+    match = re.search(
+        r"\b(FIRST|SECOND|THIRD|FOURTH)\s+"
+        r"QUARTER\s+OF\s+FISCAL\s+(20\d{2})\b",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return None, None
+
+    quarter_map = {
+        "FIRST": 1,
+        "SECOND": 2,
+        "THIRD": 3,
+        "FOURTH": 4,
+    }
+
+    return (
+        quarter_map[
+            match.group(1).upper()
+        ],
+        int(
+            match.group(2)
+        ),
+    )
+
+
+def parse_micron_quarter_end_date(
+    text: str,
+    report_date: Any,
+) -> tuple[
+    pd.Timestamp,
+    bool,
+]:
+    """
+    Parse the quarter-end date from the official earnings release.
+
+    Returns:
+        (observation_date, is_proxy)
+    """
+
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        normalize_document_text(
+            text
+        ),
+    )
+
+    match = re.search(
+        rf"\b(?:quarter|period)\s+of\s+"
+        r"(?:fiscal\s+)?20\d{2},?\s+"
+        r"which ended\s+"
+        rf"({MONTH_PATTERN})\s+"
+        r"(\d{1,2}),\s+(20\d{2})\b",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+
+    if match:
+        parsed = pd.to_datetime(
+            match.group(0).split(
+                "which ended",
+                1,
+            )[1].strip(),
+            errors="coerce",
+        )
+
+        if pd.notna(parsed):
+            return (
+                pd.Timestamp(
+                    parsed
+                ).normalize(),
+                False,
+            )
+
+    fallback = pd.to_datetime(
+        report_date,
+        errors="coerce",
+    )
+
+    if pd.isna(fallback):
+        raise RuntimeError(
+            "Unable to resolve Micron "
+            "quarter-end observation date"
+        )
+
+    return (
+        pd.Timestamp(
+            fallback
+        ).normalize(),
+        True,
+    )
+
+
+def parse_micron_cdbu_revenues(
+    html: str,
+) -> dict[str, Any]:
+    """
+    Parse the three CDBU revenue values from Micron's official
+    SEC-filed earnings release:
+
+        current quarter
+        previous quarter
+        same quarter one year earlier
+
+    The parser intentionally requires the official Core Data Center
+    Business Unit table. It does not substitute total company revenue
+    or a qualitative HBM statement.
+    """
+
     soup = BeautifulSoup(
-        response.text,
+        html,
         "html.parser",
     )
 
-    candidates: list[
-        dict[str, Any]
-    ] = []
-
-    heading_names = {
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "button",
-        "a",
-        "div",
-        "span",
-    }
-
-    def tag_text(
-        tag: Any,
-    ) -> str:
-        return " ".join(
-            tag.get_text(
-                " ",
-                strip=True,
-            ).split()
-        )
-
-    for anchor in soup.find_all(
-        "a",
-        href=True,
-    ):
-        label = tag_text(
-            anchor
-        )
-
-        if "prepared remarks" not in label.lower():
-            continue
-
-        quarter_tag = anchor.find_previous(
-            lambda tag: (
-                getattr(
-                    tag,
-                    "name",
-                    None,
-                )
-                in heading_names
-                and re.fullmatch(
-                    r"Q[1-4]",
-                    tag_text(
-                        tag
-                    ),
-                    flags=re.IGNORECASE,
-                )
-                is not None
-            )
-        )
-
-        year_tag = anchor.find_previous(
-            lambda tag: (
-                getattr(
-                    tag,
-                    "name",
-                    None,
-                )
-                in heading_names
-                and re.fullmatch(
-                    r"20\d{2}",
-                    tag_text(
-                        tag
-                    ),
-                )
-                is not None
-            )
-        )
-
-        if (
-            quarter_tag is None
-            or year_tag is None
-        ):
-            continue
-
-        quarter_match = re.fullmatch(
-            r"Q([1-4])",
-            tag_text(
-                quarter_tag
-            ),
-            flags=re.IGNORECASE,
-        )
-
-        year_match = re.fullmatch(
-            r"(20\d{2})",
-            tag_text(
-                year_tag
-            ),
-        )
-
-        if (
-            quarter_match is None
-            or year_match is None
-        ):
-            continue
-
-        fiscal_quarter = int(
-            quarter_match.group(1)
-        )
-
-        fiscal_year = int(
-            year_match.group(1)
-        )
-
-        pdf_url = urljoin(
-            MICRON_QUARTERLY_RESULTS_URL,
-            anchor[
-                "href"
-            ],
-        )
-
-        candidates.append(
-            {
-                "fiscal_quarter":
-                    fiscal_quarter,
-                "fiscal_year":
-                    fiscal_year,
-                "title":
-                    f"Q{fiscal_quarter} "
-                    f"{fiscal_year} "
-                    "Prepared Remarks",
-                "pdf_url":
-                    pdf_url,
-                # The precise release date is parsed from the PDF.
-                "release_timestamp":
-                    None,
-            }
-        )
-
-    if not candidates:
-        page_preview = " ".join(
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        normalize_document_text(
             soup.get_text(
                 " ",
                 strip=True,
-            ).split()
-        )[:2000]
+            )
+        ),
+    ).strip()
 
+    marker_match = re.search(
+        r"\bCore Data Center Business Unit\b",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+
+    if not marker_match:
         raise RuntimeError(
-            "No Micron Prepared Remarks links "
-            "were discovered on Quarterly Results. "
-            f"Page preview={page_preview!r}"
+            "Micron SEC earnings release does not "
+            "contain a Core Data Center Business Unit table"
         )
 
-    return max(
-        candidates,
-        key=lambda item: (
-            int(
-                item[
-                    "fiscal_year"
-                ]
-            ),
-            int(
-                item[
-                    "fiscal_quarter"
-                ]
-            ),
-        ),
-    )
+    start = marker_match.start()
 
-
-def parse_micron_quantitative_growth(
-    text: str,
-) -> dict[str, Any]:
-    normalized = normalize_document_text(
-        text
-    )
-
-    patterns = (
-        (
-            "CDBU_REVENUE_YOY",
-            r"(?:Core Data Center Business Unit "
-            r"\(CDBU\)|CDBU).{0,500}?"
-            r"(?:revenue\s+)?(?:was\s+)?"
-            r"(?:up|increased|grew)\s+"
-            r"([0-9]+(?:\.[0-9]+)?)%"
-            r"\s+(?:year over year|year-over-year)",
-            "YOY",
-            25.0,
-            20.0,
-        ),
-        (
-            "CDBU_REVENUE_QOQ",
-            r"(?:Core Data Center Business Unit "
-            r"\(CDBU\)|CDBU).{0,500}?"
-            r"(?:revenue\s+)?(?:was\s+)?"
-            r"(?:up|increased|grew)\s+"
-            r"([0-9]+(?:\.[0-9]+)?)%"
-            r"\s+(?:sequentially|quarter over quarter|"
-            r"quarter-over-quarter)",
-            "QOQ",
-            10.0,
-            15.0,
-        ),
-        (
-            "DATA_CENTER_REVENUE_YOY",
-            r"data center revenue.{0,300}?"
-            r"(?:was\s+)?(?:up|increased|grew)\s+"
-            r"([0-9]+(?:\.[0-9]+)?)%"
-            r"\s+(?:year over year|year-over-year)",
-            "YOY",
-            25.0,
-            20.0,
-        ),
-        (
-            "DATA_CENTER_REVENUE_QOQ",
-            r"data center revenue.{0,300}?"
-            r"(?:was\s+)?(?:up|increased|grew)\s+"
-            r"([0-9]+(?:\.[0-9]+)?)%"
-            r"\s+(?:sequentially|quarter over quarter|"
-            r"quarter-over-quarter)",
-            "QOQ",
-            10.0,
-            15.0,
-        ),
-        (
-            "HBM_REVENUE_YOY",
-            r"HBM(?:[0-9A-Za-z -]*)?\s+revenue"
-            r".{0,300}?"
-            r"(?:was\s+)?(?:up|increased|grew)\s+"
-            r"([0-9]+(?:\.[0-9]+)?)%"
-            r"\s+(?:year over year|year-over-year)",
-            "YOY",
-            25.0,
-            20.0,
-        ),
-        (
-            "HBM_REVENUE_QOQ",
-            r"HBM(?:[0-9A-Za-z -]*)?\s+revenue"
-            r".{0,300}?"
-            r"(?:was\s+)?(?:up|increased|grew)\s+"
-            r"([0-9]+(?:\.[0-9]+)?)%"
-            r"\s+(?:sequentially|quarter over quarter|"
-            r"quarter-over-quarter)",
-            "QOQ",
-            10.0,
-            15.0,
-        ),
-    )
-
-    for (
-        basis,
-        pattern,
-        period_basis,
-        midpoint,
-        scale,
-    ) in patterns:
-        match = re.search(
+    following_markers = [
+        re.search(
             pattern,
-            normalized,
-            flags=(
-                re.IGNORECASE
-                | re.DOTALL
+            normalized[
+                marker_match.end():
+            ],
+            flags=re.IGNORECASE,
+        )
+        for pattern in (
+            r"\bMobile and Client Business Unit\b",
+            r"\bAutomotive and Embedded Business Unit\b",
+            r"\bBusiness Outlook\b",
+        )
+    ]
+
+    following_offsets = [
+        match.start()
+        for match in following_markers
+        if match is not None
+    ]
+
+    end = (
+        marker_match.end()
+        + min(
+            following_offsets
+        )
+        if following_offsets
+        else min(
+            len(
+                normalized
             ),
+            start + 2500,
+        )
+    )
+
+    segment = normalized[
+        start:end
+    ]
+
+    revenue_match = re.search(
+        r"\bRevenue\b"
+        r"(.{0,500})",
+        segment,
+        flags=(
+            re.IGNORECASE
+            | re.DOTALL
+        ),
+    )
+
+    if not revenue_match:
+        raise RuntimeError(
+            "Micron CDBU table does not contain "
+            "a Revenue row"
         )
 
-        if not match:
-            continue
+    revenue_text = revenue_match.group(
+        1
+    )
 
-        growth_pct = float(
-            match.group(1)
+    values = re.findall(
+        r"\$\s*"
+        r"([0-9][0-9,]*(?:\.[0-9]+)?)",
+        revenue_text,
+    )
+
+    if len(
+        values
+    ) < 3:
+        # Fallback for filing renderers that separate the dollar signs.
+        compact_match = re.search(
+            r"^\s*"
+            r"([0-9][0-9,]*(?:\.[0-9]+)?)\s+"
+            r"([0-9][0-9,]*(?:\.[0-9]+)?)\s+"
+            r"([0-9][0-9,]*(?:\.[0-9]+)?)",
+            revenue_text,
         )
 
-        if not (
-            -100.0
-            < growth_pct
-            < 1000.0
-        ):
+        if compact_match:
+            values = list(
+                compact_match.groups()
+            )
+
+    if len(
+        values
+    ) < 3:
+        raise RuntimeError(
+            "Unable to parse three Micron CDBU "
+            f"revenue values. Segment={segment[:1200]!r}"
+        )
+
+    numeric_values = [
+        float(
+            value.replace(
+                ",",
+                "",
+            )
+        )
+        for value in values[:3]
+    ]
+
+    current_revenue, previous_quarter_revenue, previous_year_revenue = (
+        numeric_values
+    )
+
+    if min(
+        numeric_values
+    ) <= 0:
+        raise RuntimeError(
+            "Micron CDBU revenue values must be positive: "
+            f"{numeric_values}"
+        )
+
+    yoy_growth_pct = (
+        100.0
+        * (
+            current_revenue
+            / previous_year_revenue
+            - 1.0
+        )
+    )
+
+    qoq_growth_pct = (
+        100.0
+        * (
+            current_revenue
+            / previous_quarter_revenue
+            - 1.0
+        )
+    )
+
+    if not (
+        -100.0
+        < yoy_growth_pct
+        < 5000.0
+    ):
+        raise RuntimeError(
+            "Micron CDBU YoY growth is outside "
+            f"plausible bounds: {yoy_growth_pct}"
+        )
+
+    if not (
+        -100.0
+        < qoq_growth_pct
+        < 5000.0
+    ):
+        raise RuntimeError(
+            "Micron CDBU QoQ growth is outside "
+            f"plausible bounds: {qoq_growth_pct}"
+        )
+
+    yoy_score = logistic_score(
+        yoy_growth_pct,
+        midpoint=25.0,
+        scale=40.0,
+        higher_is_better=True,
+    )
+
+    qoq_score = logistic_score(
+        qoq_growth_pct,
+        midpoint=10.0,
+        scale=25.0,
+        higher_is_better=True,
+    )
+
+    blended_score = (
+        0.70
+        * yoy_score
+        + 0.30
+        * qoq_score
+    )
+
+    return {
+        "value":
+            yoy_growth_pct,
+        "score":
+            blended_score,
+        "metric_basis":
+            "CDBU_REVENUE_YOY_"
+            "SEC_8K_WITH_QOQ_CONFIRMATION",
+        "period_basis":
+            "QUARTERLY_YOY",
+        "current_revenue_usd_mn":
+            current_revenue,
+        "previous_quarter_revenue_usd_mn":
+            previous_quarter_revenue,
+        "previous_year_revenue_usd_mn":
+            previous_year_revenue,
+        "cdbu_revenue_yoy_pct":
+            yoy_growth_pct,
+        "cdbu_revenue_qoq_pct":
+            qoq_growth_pct,
+        "matched_text":
+            segment[:1500],
+    }
+
+
+def discover_latest_micron_sec_earnings_release() -> dict[str, Any]:
+    """
+    Discover the newest Micron SEC-filed earnings release whose
+    Exhibit 99.1 contains a parseable CDBU revenue table.
+    """
+
+    filings = (
+        micron_recent_earnings_filings()
+    )
+
+    errors: list[str] = []
+
+    for _, filing in filings.iterrows():
+        accession_number = str(
+            filing[
+                "accessionNumber"
+            ]
+        )
+
+        base_url = filing_archive_base_url(
+            accession_number
+        )
+
+        try:
+            document_names = (
+                micron_filing_document_names(
+                    filing
+                )
+            )
+        except Exception as exc:
+            errors.append(
+                f"{accession_number}: index error={exc}"
+            )
             continue
 
-        return {
-            "value":
-                growth_pct,
-            "metric_basis":
-                basis,
-            "period_basis":
-                period_basis,
-            "score":
-                logistic_score(
-                    growth_pct,
-                    midpoint=midpoint,
-                    scale=scale,
-                    higher_is_better=True,
-                ),
-            "matched_text":
-                " ".join(
-                    match.group(0).split()
-                )[:1000],
-        }
+        for document_name in document_names:
+            document_url = (
+                f"{base_url}/"
+                f"{document_name}"
+            )
+
+            try:
+                response = SESSION.get(
+                    document_url,
+                    timeout=(10, 90),
+                )
+
+                if not response.ok:
+                    errors.append(
+                        f"{accession_number}/"
+                        f"{document_name}: "
+                        f"HTTP {response.status_code}"
+                    )
+                    continue
+
+                time.sleep(
+                    0.15
+                )
+
+                parsed = (
+                    parse_micron_cdbu_revenues(
+                        response.text
+                    )
+                )
+
+                text = normalize_document_text(
+                    BeautifulSoup(
+                        response.text,
+                        "html.parser",
+                    ).get_text(
+                        " ",
+                        strip=True,
+                    )
+                )
+
+                fiscal_quarter, fiscal_year = (
+                    parse_micron_fiscal_period(
+                        text
+                    )
+                )
+
+                observation_date, observation_is_proxy = (
+                    parse_micron_quarter_end_date(
+                        text,
+                        filing.get(
+                            "reportDate",
+                            filing.get(
+                                "filingDate"
+                            ),
+                        ),
+                    )
+                )
+
+                release_timestamp = (
+                    parse_sec_acceptance_timestamp(
+                        filing.get(
+                            "acceptanceDateTime"
+                        ),
+                        filing.get(
+                            "filingDate"
+                        ),
+                    )
+                )
+
+                return {
+                    "filing":
+                        filing.to_dict(),
+                    "document_name":
+                        document_name,
+                    "document_url":
+                        document_url,
+                    "document_sha256":
+                        hashlib.sha256(
+                            response.content
+                        ).hexdigest(),
+                    "release_timestamp":
+                        release_timestamp,
+                    "observation_date":
+                        observation_date,
+                    "observation_date_is_proxy":
+                        observation_is_proxy,
+                    "fiscal_quarter":
+                        fiscal_quarter,
+                    "fiscal_year":
+                        fiscal_year,
+                    "parsed":
+                        parsed,
+                }
+
+            except Exception as exc:
+                errors.append(
+                    f"{accession_number}/"
+                    f"{document_name}: {exc}"
+                )
 
     raise RuntimeError(
-        "Micron Prepared Remarks did not "
-        "contain a supported quantified "
-        "Data Center or HBM growth statement"
+        "No recent Micron SEC earnings release "
+        "contained a usable CDBU revenue table. "
+        f"Recent errors={errors[-12:]}"
     )
 
 
 def collect_micron_dc_hbm_row(
     fetched_at: pd.Timestamp,
 ) -> dict[str, Any]:
+    """
+    Build the Micron Data Center/HBM proxy from an SEC-filed
+    Exhibit 99.1 earnings release.
+
+    This avoids Micron's privacy-gated IR pages. The underlying CDBU
+    revenue values are official; mapping CDBU revenue growth into the
+    AI Cycle score remains a model proxy.
+    """
+
     metadata = (
-        discover_latest_micron_prepared_remarks()
+        discover_latest_micron_sec_earnings_release()
     )
 
-    text, document_hash = (
-        download_pdf_text(
-            metadata[
-                "pdf_url"
-            ]
-        )
-    )
+    parsed = metadata[
+        "parsed"
+    ]
 
-    parsed = (
-        parse_micron_quantitative_growth(
-            text
-        )
-    )
-
-    release_timestamp = metadata.get(
-        "release_timestamp"
-    )
-
-    if release_timestamp is None:
-        release_date = (
-            parse_document_date(
-                text
-            )
-        )
-
-        release_timestamp = (
-            release_date
-            + pd.Timedelta(
-                hours=16,
-                minutes=30,
-            )
-        ).tz_localize(
-            "America/New_York"
-        ).tz_convert(
-            "UTC"
-        )
+    filing = metadata[
+        "filing"
+    ]
 
     release_timestamp = pd.Timestamp(
-        release_timestamp
+        metadata[
+            "release_timestamp"
+        ]
     )
 
     if release_timestamp.tzinfo is None:
@@ -3499,7 +3920,11 @@ def collect_micron_dc_hbm_row(
 
     return {
         "observation_date":
-            release_timestamp
+            pd.Timestamp(
+                metadata[
+                    "observation_date"
+                ]
+            )
             .date()
             .isoformat(),
         "release_timestamp":
@@ -3531,14 +3956,19 @@ def collect_micron_dc_hbm_row(
                 4,
             ),
         "source":
-            "MICRON_PREPARED_REMARKS_"
-            "QUANTITATIVE_PROXY",
+            "MICRON_SEC_8K_EX99_1_"
+            "CDBU_REVENUE_PROXY",
         "is_proxy":
             True,
         "fetched_at":
             fetched_at.isoformat(),
         "source_id":
-            document_hash,
+            str(
+                filing.get(
+                    "accessionNumber",
+                    "",
+                )
+            ),
         "period_basis":
             parsed[
                 "period_basis"
@@ -3549,14 +3979,14 @@ def collect_micron_dc_hbm_row(
             ],
         "document_url":
             metadata[
-                "pdf_url"
+                "document_url"
             ],
         "document_sha256":
-            document_hash,
-        "document_title":
             metadata[
-                "title"
+                "document_sha256"
             ],
+        "document_title":
+            "Micron SEC-filed earnings release",
         "fiscal_year":
             metadata[
                 "fiscal_year"
@@ -3570,7 +4000,56 @@ def collect_micron_dc_hbm_row(
                 "matched_text"
             ],
         "observation_date_is_release_proxy":
-            True,
+            bool(
+                metadata[
+                    "observation_date_is_proxy"
+                ]
+            ),
+        "current_revenue_usd_mn":
+            round(
+                float(
+                    parsed[
+                        "current_revenue_usd_mn"
+                    ]
+                ),
+                6,
+            ),
+        "previous_quarter_revenue_usd_mn":
+            round(
+                float(
+                    parsed[
+                        "previous_quarter_revenue_usd_mn"
+                    ]
+                ),
+                6,
+            ),
+        "previous_year_revenue_usd_mn":
+            round(
+                float(
+                    parsed[
+                        "previous_year_revenue_usd_mn"
+                    ]
+                ),
+                6,
+            ),
+        "cdbu_revenue_yoy_pct":
+            round(
+                float(
+                    parsed[
+                        "cdbu_revenue_yoy_pct"
+                    ]
+                ),
+                6,
+            ),
+        "cdbu_revenue_qoq_pct":
+            round(
+                float(
+                    parsed[
+                        "cdbu_revenue_qoq_pct"
+                    ]
+                ),
+                6,
+            ),
     }
 
 
@@ -3582,7 +4061,7 @@ def collect_ai_cycle() -> None:
     1. NVIDIA quarterly total-revenue YoY proxy.
     2. Hyperscaler CapEx YoY, amount weighted.
     3. TSMC HPC revenue-growth proxy from official Management Reports.
-    4. Micron Data Center / HBM growth from official Prepared Remarks.
+    4. Micron CDBU growth from an official SEC-filed earnings release.
 
     TSMC and Micron remain proxy rows because their values are derived
     from official disclosure text rather than standardized XBRL fields.
