@@ -1,6 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-07-14,MARKET,macro_release,Real Earnings,BLS_ICS,False
-2026-07-14,MARKET,macro_release,Consumer Price Index,BLS_ICS,False
 2026-07-15,MARKET,macro_release,Producer Price Index,BLS_ICS,False
 2026-07-17,MARKET,macro_release,U.S. Import and Export Price Indexes,BLS_ICS,False
 2026-07-21,MARKET,macro_release,Usual Weekly Earnings of Wage and Salary Workers,BLS_ICS,False
