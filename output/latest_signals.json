@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-07-24",
   "decision_date": "2026-07-27",
-  "generated_at": "2026-07-25T06:42:20.032893+00:00",
+  "generated_at": "2026-07-26T07:56:03.689792+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -30,9 +30,9 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 26.2916,
+    "iv30_pct": 26.8089,
     "rv20_pct": 23.655,
-    "iv_minus_rv_pct_points": 2.6366,
+    "iv_minus_rv_pct_points": 3.1539,
     "strike_recommendation_available": false
   },
   "action": "僅限核心 ETF 小量分批；目標融資 4.3%，現金 15%–25%。",
@@ -324,9 +324,9 @@
     "positioning.vvix_percentile": 57.2024,
     "positioning.equity_put_call": 0.79,
     "positioning.cftc_positioning": -44.7468,
-    "positioning.iv30": 26.2916,
+    "positioning.iv30": 26.8089,
     "positioning.rv20": 23.655,
-    "positioning.iv_rv_spread": 2.6366
+    "positioning.iv_rv_spread": 3.1539
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
