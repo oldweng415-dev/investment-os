@@ -732,6 +732,38 @@ jobs:
           echo "Return alpha execution:"
           cat output/return_alpha_execution.json
 
+          python - <<'PY'
+          import json
+
+          with open(
+              "output/return_alpha_execution.json",
+              "r",
+              encoding="utf-8",
+          ) as handle:
+              alpha = json.load(handle)
+
+          print(
+              "Return Alpha V2 summary:",
+              {
+                  "model_version": alpha.get("model_version"),
+                  "expert": alpha.get("expert"),
+                  "timing_alpha_60d_pct": alpha.get(
+                      "expected_timing_alpha_60d_pct"
+                  ),
+                  "calibrated_probability": alpha.get(
+                      "probability_positive"
+                  ),
+                  "forecast_percentile": alpha.get(
+                      "forecast_percentile"
+                  ),
+                  "target_margin_pct": alpha.get(
+                      "model_actual_margin_pct"
+                  ),
+                  "action": alpha.get("action"),
+              },
+          )
+          PY
+
       # ======================================================
       # 13. 手動執行時，跑探索性四策略驗證
       # live_public 歷史可能含修訂值，因此這不是正式 strict PIT 結果。
@@ -1167,10 +1199,18 @@ jobs:
           )
 
           required_return_alpha_fields = {
+              "model_version",
               "signal_date",
               "effective_date",
+              "expert",
+              "expected_timing_alpha_60d_pct",
+              "regime_baseline_60d_pct",
               "expected_net_return_60d_pct",
+              "raw_probability",
               "probability_positive",
+              "forecast_percentile",
+              "calibration_method",
+              "calibration_samples",
               "alpha_demand_margin_pct",
               "risk_cap_margin_pct",
               "raw_target_margin_pct",
@@ -1216,11 +1256,40 @@ jobs:
           probability_positive = float(
               return_alpha["probability_positive"]
           )
+          raw_probability = float(
+              return_alpha["raw_probability"]
+          )
+          forecast_percentile = float(
+              return_alpha["forecast_percentile"]
+          )
 
-          if not 0 <= probability_positive <= 1:
+          for probability_name, probability_value in (
+              ("probability_positive", probability_positive),
+              ("raw_probability", raw_probability),
+              ("forecast_percentile", forecast_percentile),
+          ):
+              if not 0 <= probability_value <= 1:
+                  raise AssertionError(
+                      f"return_alpha.{probability_name} "
+                      f"must be in [0, 1]: {probability_value}"
+                  )
+
+          if not str(
+              return_alpha["model_version"]
+          ).startswith("v2_"):
               raise AssertionError(
-                  "return_alpha.probability_positive "
-                  f"must be in [0, 1]: {probability_positive}"
+                  "Return Alpha V2 model_version was not detected: "
+                  f"{return_alpha['model_version']}"
+              )
+
+          if return_alpha["expert"] not in {
+              "trend",
+              "pullback",
+              "risk_off",
+          }:
+              raise AssertionError(
+                  "Invalid Return Alpha expert: "
+                  f"{return_alpha['expert']}"
               )
 
           alpha_reference_equity = float(
