@@ -27,7 +27,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     permissions:
       contents: write
@@ -646,13 +646,40 @@ jobs:
             exit 1
           }
 
+          test -f validation/return_seeking_margin_engine.py || {
+            echo "ERROR: validation/return_seeking_margin_engine.py does not exist."
+            exit 1
+          }
+
+          test -f validation/return_alpha_config.json || {
+            echo "ERROR: validation/return_alpha_config.json does not exist."
+            exit 1
+          }
+
+          test -f validation/return_alpha_sensitivity_config.json || {
+            echo "ERROR: validation/return_alpha_sensitivity_config.json does not exist."
+            exit 1
+          }
+
+          test -f validation/return_alpha_state_config.json || {
+            echo "ERROR: validation/return_alpha_state_config.json does not exist."
+            exit 1
+          }
+
           python -m py_compile investment_os_production.py
           python -m py_compile collectors/collect_free_data.py
           python -m py_compile validation/margin_strategy_validation.py
+          python -m py_compile validation/return_seeking_margin_engine.py
 
           python -m json.tool             validation/margin_state_config.json             > /dev/null
 
           python -m json.tool             validation/margin_backtest_config.json             > /dev/null
+
+          python -m json.tool             validation/return_alpha_config.json             > /dev/null
+
+          python -m json.tool             validation/return_alpha_sensitivity_config.json             > /dev/null
+
+          python -m json.tool             validation/return_alpha_state_config.json             > /dev/null
 
           echo "Source validation passed."
 
@@ -686,7 +713,27 @@ jobs:
           cat output/margin_execution.json
 
       # ======================================================
-      # 10. 手動執行時，跑探索性四策略驗證
+      # 12. Return-Seeking Alpha 每日狀態
+      # ======================================================
+      - name: Update return-seeking alpha state
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python validation/return_seeking_margin_engine.py live             --history output/score_history.csv             --ticker QQQ             --alpha-config validation/return_alpha_config.json             --alpha-state-config validation/return_alpha_state_config.json             --current-state-config validation/margin_state_config.json             --backtest-config validation/margin_backtest_config.json             --signals output/latest_signals.json             --state output/return_alpha_state.json             --execution-output output/return_alpha_execution.json             --reference-equity "${REFERENCE_EQUITY_NTD}"
+
+          python -m json.tool             output/return_alpha_state.json             > /dev/null
+
+          python -m json.tool             output/return_alpha_execution.json             > /dev/null
+
+          echo "Return alpha state:"
+          cat output/return_alpha_state.json
+
+          echo "Return alpha execution:"
+          cat output/return_alpha_execution.json
+
+      # ======================================================
+      # 13. 手動執行時，跑探索性四策略驗證
       # live_public 歷史可能含修訂值，因此這不是正式 strict PIT 結果。
       # ======================================================
       - name: Run exploratory margin validation
@@ -704,7 +751,43 @@ jobs:
 
           echo "Validation report:"
           cat output/margin_validation/validation_report.json
-      #=======================================================
+
+      # ======================================================
+      # 14. 手動執行：Return Alpha 完整驗證
+      # ======================================================
+      - name: Run return-alpha validation
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python validation/return_seeking_margin_engine.py self-test
+
+          python validation/return_seeking_margin_engine.py backtest             --history output/score_history.csv             --ticker QQQ             --alpha-config validation/return_alpha_config.json             --alpha-state-config validation/return_alpha_state_config.json             --current-state-config validation/margin_state_config.json             --backtest-config validation/margin_backtest_config.json             --output-dir output/return_alpha_validation
+
+          echo "Return-alpha strategy comparison:"
+          cat output/return_alpha_validation/strategy_comparison.csv
+
+          echo "Return-alpha validation report:"
+          cat             output/return_alpha_validation/return_alpha_validation_report.json
+
+      # ======================================================
+      # 15. 手動執行：Return Alpha 鄰近參數敏感度
+      # ======================================================
+      - name: Run return-alpha sensitivity
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python validation/return_seeking_margin_engine.py backtest             --history output/score_history.csv             --ticker QQQ             --alpha-config validation/return_alpha_sensitivity_config.json             --alpha-state-config validation/return_alpha_state_config.json             --current-state-config validation/margin_state_config.json             --backtest-config validation/margin_backtest_config.json             --output-dir output/return_alpha_sensitivity
+
+          echo "Return-alpha parameter sensitivity:"
+          cat output/return_alpha_sensitivity/parameter_sensitivity.csv
+
+      # ======================================================
+      # 16. 分數與日期對齊驗證
+      # ======================================================
       - name: Validate score and date alignment
         shell: bash
         run: |
@@ -843,7 +926,7 @@ jobs:
           PY
 
       # ======================================================
-      # 13. 驗證輸出
+      # 17. 驗證輸出
       # ======================================================
       - name: Validate output
         shell: bash
@@ -857,6 +940,8 @@ jobs:
             "output/raw_indicator_snapshot.csv"
             "output/margin_state.json"
             "output/margin_execution.json"
+            "output/return_alpha_state.json"
+            "output/return_alpha_execution.json"
           )
 
           for file in "${REQUIRED_NONEMPTY_FILES[@]}"; do
@@ -876,6 +961,8 @@ jobs:
           python -m json.tool output/latest_signals.json > /dev/null
           python -m json.tool output/margin_state.json > /dev/null
           python -m json.tool output/margin_execution.json > /dev/null
+          python -m json.tool output/return_alpha_state.json > /dev/null
+          python -m json.tool output/return_alpha_execution.json > /dev/null
 
           python - <<'PY'
           import json
@@ -906,6 +993,7 @@ jobs:
               "decision_reasons",
               "raw_indicators",
               "margin_execution",
+              "return_alpha",
           }
 
           missing_json_keys = required_json_keys - set(payload)
@@ -1072,6 +1160,116 @@ jobs:
                   raise AssertionError(
                       "Hard exit must set model_actual_margin_pct to zero."
                   )
+
+          return_alpha = payload.get(
+              "return_alpha",
+              {},
+          )
+
+          required_return_alpha_fields = {
+              "signal_date",
+              "effective_date",
+              "expected_net_return_60d_pct",
+              "probability_positive",
+              "alpha_demand_margin_pct",
+              "risk_cap_margin_pct",
+              "raw_target_margin_pct",
+              "confirmed_target_margin_pct",
+              "model_actual_margin_pct",
+              "action",
+              "reasons",
+              "reference_equity",
+              "recommended_loan_amount",
+              "model_train_end",
+              "strict_pit_ready",
+          }
+
+          missing_return_alpha_fields = (
+              required_return_alpha_fields
+              - set(return_alpha)
+          )
+
+          if missing_return_alpha_fields:
+              raise AssertionError(
+                  "return_alpha missing fields: "
+                  f"{sorted(missing_return_alpha_fields)}"
+              )
+
+          for field_name in (
+              "alpha_demand_margin_pct",
+              "risk_cap_margin_pct",
+              "raw_target_margin_pct",
+              "confirmed_target_margin_pct",
+              "model_actual_margin_pct",
+          ):
+              field_value = return_alpha.get(field_name)
+
+              if (
+                  field_value is None
+                  or not 0 <= float(field_value) <= 20
+              ):
+                  raise AssertionError(
+                      f"Invalid return_alpha.{field_name}: "
+                      f"{field_value}"
+                  )
+
+          probability_positive = float(
+              return_alpha["probability_positive"]
+          )
+
+          if not 0 <= probability_positive <= 1:
+              raise AssertionError(
+                  "return_alpha.probability_positive "
+                  f"must be in [0, 1]: {probability_positive}"
+              )
+
+          alpha_reference_equity = float(
+              return_alpha["reference_equity"]
+          )
+
+          alpha_expected_loan = (
+              alpha_reference_equity
+              * float(
+                  return_alpha[
+                      "model_actual_margin_pct"
+                  ]
+              )
+              / 100.0
+          )
+
+          if abs(
+              float(
+                  return_alpha[
+                      "recommended_loan_amount"
+                  ]
+              )
+              - alpha_expected_loan
+          ) > 0.01:
+              raise AssertionError(
+                  "Return Alpha recommended loan formula mismatch: "
+                  f"actual={return_alpha['recommended_loan_amount']}, "
+                  f"expected={alpha_expected_loan}"
+              )
+
+          if float(
+              return_alpha[
+                  "raw_target_margin_pct"
+              ]
+          ) > min(
+              float(
+                  return_alpha[
+                      "alpha_demand_margin_pct"
+                  ]
+              ),
+              float(
+                  return_alpha[
+                      "risk_cap_margin_pct"
+                  ]
+              ),
+          ) + 1e-9:
+              raise AssertionError(
+                  "Return Alpha raw target exceeds demand or risk cap."
+              )
 
           target_margin = allocation.get("Target_Margin_Pct")
           risk_score = scores.get("Risk_Score")
@@ -1258,7 +1456,7 @@ jobs:
           PY
 
       # ======================================================
-      # 14. 將 output 寫回 main
+      # 18. 將 output 寫回 main
       # ======================================================
       - name: Commit and push output to main
         shell: bash
@@ -1308,7 +1506,7 @@ jobs:
           cp -a /tmp/investment-os-output/. output/
 
       # ======================================================
-      # 15. 從 main/site 建立 Pages Artifact
+      # 19. 從 main/site 建立 Pages Artifact
       # ======================================================
       - name: Prepare GitHub Pages site
         shell: bash
@@ -1330,9 +1528,18 @@ jobs:
           cp output/module_data_quality.csv /tmp/pages-site/output/module_data_quality.csv
           cp output/raw_indicator_snapshot.csv /tmp/pages-site/output/raw_indicator_snapshot.csv
           cp output/margin_execution.json /tmp/pages-site/output/margin_execution.json
+          cp             output/return_alpha_execution.json             /tmp/pages-site/output/return_alpha_execution.json
 
           if [ -d "output/margin_validation" ]; then
             cp -a               output/margin_validation               /tmp/pages-site/output/
+          fi
+
+          if [ -d "output/return_alpha_validation" ]; then
+            cp -a               output/return_alpha_validation               /tmp/pages-site/output/
+          fi
+
+          if [ -d "output/return_alpha_sensitivity" ]; then
+            cp -a               output/return_alpha_sensitivity               /tmp/pages-site/output/
           fi
 
           touch /tmp/pages-site/.nojekyll
@@ -1344,7 +1551,7 @@ jobs:
           find /tmp/pages-site -maxdepth 3 -type f | sort
 
       # ======================================================
-      # 16. 設定與部署 GitHub Pages
+      # 20. 設定與部署 GitHub Pages
       # ======================================================
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
