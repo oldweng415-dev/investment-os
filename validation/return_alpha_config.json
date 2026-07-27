@@ -1,0 +1,54 @@
+{
+  "ticker": "QQQ",
+  "horizons": [
+    20,
+    60,
+    120
+  ],
+  "horizon_weights": [
+    0.2,
+    0.55,
+    0.25
+  ],
+  "min_train_days": 1260,
+  "train_window_days": 2520,
+  "refit_frequency": "monthly",
+  "ridge_penalty": 25.0,
+  "target_winsor_lower": 0.01,
+  "target_winsor_upper": 0.99,
+  "annual_borrow_rate": 0.04,
+  "round_trip_cost_bps": 14.0,
+  "probability_tier_1": 0.54,
+  "probability_tier_2": 0.58,
+  "probability_tier_3": 0.62,
+  "probability_tier_4": 0.66,
+  "expected_net_60d_tier_1_pct": 0.5,
+  "expected_net_60d_tier_2_pct": 1.5,
+  "expected_net_60d_tier_3_pct": 3.0,
+  "expected_net_60d_tier_4_pct": 5.0,
+  "margin_tier_1_pct": 1.0,
+  "margin_tier_2_pct": 3.0,
+  "margin_tier_3_pct": 5.0,
+  "margin_tier_4_pct": 8.0,
+  "max_alpha_margin_pct": 8.0,
+  "require_price_above_ma200": true,
+  "pullback_bonus_pct": 1.0,
+  "pullback_min_pct": -12.0,
+  "pullback_max_pct": -2.0,
+  "backwardation_cap_pct": 2.0,
+  "evaluation_fold_years": 2,
+  "bootstrap_iterations": 1000,
+  "bootstrap_block_months": 3,
+  "random_seed": 415,
+  "run_sensitivity": false,
+  "sensitivity_probability_offsets": [
+    -0.02,
+    0.0,
+    0.02
+  ],
+  "sensitivity_max_margins": [
+    5.0,
+    8.0,
+    10.0
+  ]
+}
