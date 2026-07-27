@@ -743,18 +743,19 @@ jobs:
               alpha = json.load(handle)
 
           print(
-              "Return Alpha V2 summary:",
+              "Return Alpha V3 summary:",
               {
                   "model_version": alpha.get("model_version"),
                   "expert": alpha.get("expert"),
-                  "timing_alpha_60d_pct": alpha.get(
-                      "expected_timing_alpha_60d_pct"
+                  "decision_due": alpha.get("decision_due"),
+                  "relative_alpha_60d_pct": alpha.get(
+                      "stable_expected_relative_alpha_60d_pct"
                   ),
-                  "calibrated_probability": alpha.get(
-                      "probability_positive"
+                  "stable_forecast_rank": alpha.get(
+                      "stable_forecast_rank"
                   ),
-                  "forecast_percentile": alpha.get(
-                      "forecast_percentile"
+                  "rank_pass_count": alpha.get(
+                      "rank_pass_count"
                   ),
                   "target_margin_pct": alpha.get(
                       "model_actual_margin_pct"
@@ -795,27 +796,127 @@ jobs:
 
           python validation/return_seeking_margin_engine.py self-test
 
-          python validation/return_seeking_margin_engine.py backtest             --history output/score_history.csv             --ticker QQQ             --alpha-config validation/return_alpha_config.json             --alpha-state-config validation/return_alpha_state_config.json             --current-state-config validation/margin_state_config.json             --backtest-config validation/margin_backtest_config.json             --output-dir output/return_alpha_validation
+          python validation/return_seeking_margin_engine.py backtest \
+            --history output/score_history.csv \
+            --ticker QQQ \
+            --alpha-config validation/return_alpha_config.json \
+            --sensitivity-config validation/return_alpha_sensitivity_config.json \
+            --alpha-state-config validation/return_alpha_state_config.json \
+            --current-state-config validation/margin_state_config.json \
+            --backtest-config validation/margin_backtest_config.json \
+            --output-dir output/return_alpha_validation
 
           echo "Return-alpha strategy comparison:"
           cat output/return_alpha_validation/strategy_comparison.csv
 
           echo "Return-alpha validation report:"
-          cat             output/return_alpha_validation/return_alpha_validation_report.json
+          cat \
+            output/return_alpha_validation/return_alpha_validation_report.json
+
+          test -s output/return_alpha_validation/parameter_sensitivity.csv || {
+            echo "::error::Return Alpha parameter sensitivity is empty."
+            exit 1
+          }
+
+          python - <<'PY'
+          import pandas as pd
+
+          path = (
+              "output/return_alpha_validation/"
+              "parameter_sensitivity.csv"
+          )
+          frame = pd.read_csv(path)
+
+          if frame.empty:
+              raise AssertionError(
+                  "parameter_sensitivity.csv has no data rows."
+              )
+
+          required = {
+              "profile",
+              "rank_offset",
+              "relative_alpha_offset_pct",
+              "decision_interval_business_days",
+              "max_alpha_margin_pct",
+              "alpha_minus_fixed_matched_cagr",
+              "fold_win_rate_vs_fixed_matched",
+          }
+          missing = required - set(frame.columns)
+          if missing:
+              raise AssertionError(
+                  f"Sensitivity missing columns: {sorted(missing)}"
+              )
+
+          print("Sensitivity profiles:", len(frame))
+          print(frame.to_string(index=False))
+          PY
 
       # ======================================================
-      # 15. 手動執行：Return Alpha 鄰近參數敏感度
+      # 15. 保存已完成的參數敏感度結果
       # ======================================================
-      - name: Run return-alpha sensitivity
+      - name: Save return-alpha sensitivity
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
 
-          python validation/return_seeking_margin_engine.py backtest             --history output/score_history.csv             --ticker QQQ             --alpha-config validation/return_alpha_sensitivity_config.json             --alpha-state-config validation/return_alpha_state_config.json             --current-state-config validation/margin_state_config.json             --backtest-config validation/margin_backtest_config.json             --output-dir output/return_alpha_sensitivity
+          mkdir -p output/return_alpha_sensitivity
+          cp \
+            output/return_alpha_validation/parameter_sensitivity.csv \
+            output/return_alpha_sensitivity/parameter_sensitivity.csv
 
-          echo "Return-alpha parameter sensitivity:"
-          cat output/return_alpha_sensitivity/parameter_sensitivity.csv
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+
+          path = Path(
+              "output/return_alpha_sensitivity/"
+              "parameter_sensitivity.csv"
+          )
+          frame = pd.read_csv(path)
+          if frame.empty:
+              raise AssertionError(
+                  "Copied sensitivity result is empty."
+              )
+
+          summary = {
+              "profile_count": int(len(frame)),
+              "positive_rate_vs_fixed_matched": float(
+                  (
+                      frame[
+                          "alpha_minus_fixed_matched_cagr"
+                      ] > 0
+                  ).mean()
+              ),
+              "rate_above_0_50pp_excess": float(
+                  (
+                      frame[
+                          "alpha_minus_fixed_matched_cagr"
+                      ] >= 0.005
+                  ).mean()
+              ),
+              "best_profile_by_excess_cagr": str(
+                  frame.sort_values(
+                      "alpha_minus_fixed_matched_cagr",
+                      ascending=False,
+                  ).iloc[0]["profile"]
+              ),
+              "note": (
+                  "Diagnostic only. The workflow does not "
+                  "auto-select the historical best profile."
+              ),
+          }
+          Path(
+              "output/return_alpha_sensitivity/"
+              "sensitivity_summary.json"
+          ).write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2)
+              + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
 
       # ======================================================
       # 16. 分數與日期對齊驗證
@@ -1202,15 +1303,19 @@ jobs:
               "model_version",
               "signal_date",
               "effective_date",
+              "decision_due",
+              "decision_interval_business_days",
+              "last_model_decision_date",
               "expert",
-              "expected_timing_alpha_60d_pct",
-              "regime_baseline_60d_pct",
+              "expected_relative_alpha_60d_pct",
+              "stable_expected_relative_alpha_60d_pct",
+              "static_baseline_60d_pct",
               "expected_net_return_60d_pct",
-              "raw_probability",
-              "probability_positive",
-              "forecast_percentile",
-              "calibration_method",
-              "calibration_samples",
+              "forecast_rank",
+              "stable_forecast_rank",
+              "rank_pass_count",
+              "rank_stability_lookback_days",
+              "diagnostic_probability",
               "alpha_demand_margin_pct",
               "risk_cap_margin_pct",
               "raw_target_margin_pct",
@@ -1223,7 +1328,6 @@ jobs:
               "model_train_end",
               "strict_pit_ready",
           }
-
           missing_return_alpha_fields = (
               required_return_alpha_fields
               - set(return_alpha)
@@ -1253,32 +1357,40 @@ jobs:
                       f"{field_value}"
                   )
 
-          probability_positive = float(
-              return_alpha["probability_positive"]
-          )
-          raw_probability = float(
-              return_alpha["raw_probability"]
-          )
-          forecast_percentile = float(
-              return_alpha["forecast_percentile"]
-          )
-
-          for probability_name, probability_value in (
-              ("probability_positive", probability_positive),
-              ("raw_probability", raw_probability),
-              ("forecast_percentile", forecast_percentile),
+          for rank_name in (
+              "forecast_rank",
+              "stable_forecast_rank",
+              "diagnostic_probability",
           ):
-              if not 0 <= probability_value <= 1:
+              rank_value = float(return_alpha[rank_name])
+              if not 0 <= rank_value <= 1:
                   raise AssertionError(
-                      f"return_alpha.{probability_name} "
-                      f"must be in [0, 1]: {probability_value}"
+                      f"return_alpha.{rank_name} "
+                      f"must be in [0, 1]: {rank_value}"
                   )
+
+          if int(return_alpha["rank_pass_count"]) < 0:
+              raise AssertionError(
+                  "return_alpha.rank_pass_count cannot be negative."
+              )
+
+          if int(
+              return_alpha["decision_interval_business_days"]
+          ) <= 0:
+              raise AssertionError(
+                  "decision_interval_business_days must be positive."
+              )
+
+          if not isinstance(return_alpha["decision_due"], bool):
+              raise AssertionError(
+                  "return_alpha.decision_due must be boolean."
+              )
 
           if not str(
               return_alpha["model_version"]
-          ).startswith("v2_"):
+          ).startswith("v3_"):
               raise AssertionError(
-                  "Return Alpha V2 model_version was not detected: "
+                  "Return Alpha V3 model_version was not detected: "
                   f"{return_alpha['model_version']}"
               )
 
