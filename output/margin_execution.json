@@ -1,0 +1,17 @@
+{
+  "signal_date": "2026-07-23",
+  "effective_date": "2026-07-24",
+  "raw_target_margin_pct": 2.7,
+  "confirmed_target_margin_pct": 0.0,
+  "model_actual_margin_pct": 0.0,
+  "action": "WAIT_INCREASE_CONFIRMATION",
+  "reasons": [
+    "Increase_Confirmation_1_of_3"
+  ],
+  "hard_exit": false,
+  "increase_streak": 1,
+  "decrease_streak": 0,
+  "reference_equity": 38827242.0,
+  "recommended_loan_amount": 0.0,
+  "note": "model_actual_margin_pct is a persistent model target, not broker-confirmed debt."
+}
