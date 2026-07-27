@@ -1,0 +1,25 @@
+{
+  "signal_date": "2026-07-23",
+  "effective_date": "2026-07-24",
+  "expected_net_return_60d_pct": 9.171956494769981,
+  "probability_positive": 0.9092617396125193,
+  "alpha_demand_margin_pct": 8.0,
+  "risk_cap_margin_pct": 4.0,
+  "alpha_reasons": [
+    "Tier_4",
+    "Uptrend_Pullback_Bonus"
+  ],
+  "risk_reasons": [],
+  "raw_target_margin_pct": 4.0,
+  "confirmed_target_margin_pct": 0.0,
+  "model_actual_margin_pct": 0.0,
+  "action": "WAIT_INCREASE_CONFIRMATION",
+  "reasons": [
+    "Increase_Confirmation_1_of_2"
+  ],
+  "reference_equity": 38827242.0,
+  "recommended_loan_amount": 0.0,
+  "model_train_end": "2026-06-23",
+  "strict_pit_ready": false,
+  "note": "Return-seeking forecast is experimental until strict PIT and live paper-trade validation pass."
+}
