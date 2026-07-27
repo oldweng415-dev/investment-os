@@ -1,0 +1,13 @@
+{
+  "ticker": "QQQ",
+  "initial_equity": 1000000.0,
+  "fixed_margin_pct": 5.0,
+  "annual_borrow_rate": 0.04,
+  "transaction_cost_bps": 5.0,
+  "slippage_bps": 2.0,
+  "trading_days_per_year": 252,
+  "monthly_reference_equity": true,
+  "execution_lag_days": 1,
+  "train_years": 5,
+  "test_years": 2
+}
