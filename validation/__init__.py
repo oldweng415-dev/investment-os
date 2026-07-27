@@ -1,1 +1,2 @@
+"""Investment OS validation package."""
 
