@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-07-23",
   "decision_date": "2026-07-24",
-  "generated_at": "2026-07-27T09:41:35.296943+00:00",
+  "generated_at": "2026-07-27T10:57:38.678150+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -332,14 +332,11 @@
     "raw_target_margin_pct": 2.7,
     "confirmed_target_margin_pct": 1.0,
     "model_actual_margin_pct": 1.0,
-    "action": "INCREASE_MARGIN",
+    "action": "NO_NEW_SIGNAL",
     "reasons": [
-      "Increase_Confirmation_3_of_3",
-      "Increase_Executed"
+      "Signal_Date_Already_Processed"
     ],
     "hard_exit": false,
-    "increase_streak": 0,
-    "decrease_streak": 0,
     "reference_equity": 38827242.0,
     "recommended_loan_amount": 388272.42,
     "note": "model_actual_margin_pct is a persistent model target, not broker-confirmed debt."
@@ -349,16 +346,16 @@
     "signal_date": "2026-07-23",
     "effective_date": "2026-07-24",
     "expert": "pullback",
-    "expected_timing_alpha_60d_pct": -0.9576025040270373,
-    "regime_baseline_60d_pct": 3.731411032176181,
-    "expected_net_return_60d_pct": 2.773808528149144,
-    "raw_probability": 0.48277106065492115,
+    "expected_timing_alpha_60d_pct": -0.957580714521889,
+    "regime_baseline_60d_pct": 3.731410936030806,
+    "expected_net_return_60d_pct": 2.773830221508917,
+    "raw_probability": 0.48277178219469763,
     "probability_positive": 0.5385247905247905,
     "forecast_percentile": 0.36671722743151314,
     "calibration_method": "oos_isotonic",
     "calibration_samples": 2200.0,
     "calibration_brier": 0.24167827202601166,
-    "calibration_ece": 0.029774425095526056,
+    "calibration_ece": 0.028865334186435138,
     "alpha_demand_margin_pct": 0.0,
     "risk_cap_margin_pct": 4.0,
     "alpha_reasons": [
@@ -369,9 +366,9 @@
     "raw_target_margin_pct": 0.0,
     "confirmed_target_margin_pct": 0.0,
     "model_actual_margin_pct": 0.0,
-    "action": "EXIT_ALL",
+    "action": "NO_NEW_SIGNAL",
     "reasons": [
-      "Timing_Alpha_Exit"
+      "Signal_Date_Already_Processed"
     ],
     "reference_equity": 38827242.0,
     "recommended_loan_amount": 0.0,
