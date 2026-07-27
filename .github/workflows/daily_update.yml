@@ -17,6 +17,7 @@ on:
       - "investment_os_production.py"
       - "requirements.txt"
       - "collectors/**"
+      - "validation/**"
       - ".github/workflows/daily_update.yml"
 
 concurrency:
@@ -44,6 +45,8 @@ jobs:
       CFTC_APP_TOKEN: ${{ secrets.CFTC_APP_TOKEN }}
       OPTIONS_UNDERLYING: QQQ
       OPTIONS_TARGET_DTE: "30"
+      # 原始股票市值／融資比例的計算基準，請在 Repository Variables 設定。
+      REFERENCE_EQUITY_NTD: ${{ vars.REFERENCE_EQUITY_NTD }}
 
     steps:
       # ======================================================
@@ -121,6 +124,29 @@ jobs:
             echo "Create it under Settings → Secrets and variables → Actions → Variables."
             exit 1
           fi
+
+          if [ -z "${REFERENCE_EQUITY_NTD:-}" ]; then
+            echo "::error::REFERENCE_EQUITY_NTD is empty or unavailable."
+            echo "Create it under Settings → Secrets and variables → Actions → Variables."
+            echo "Example value: 38827242"
+            exit 1
+          fi
+
+          python - <<'PY'
+          import os
+
+          value = float(os.environ["REFERENCE_EQUITY_NTD"])
+
+          if value <= 0:
+              raise AssertionError(
+                  "REFERENCE_EQUITY_NTD must be greater than zero."
+              )
+
+          print(
+              "REFERENCE_EQUITY_NTD is configured:",
+              value,
+          )
+          PY
 
           echo "FRED_API_KEY is configured."
           echo "SEC_USER_AGENT is configured."
@@ -583,7 +609,7 @@ jobs:
           fi
 
       # ======================================================
-      # 7. 驗證原始檔案
+      # 9. 驗證原始檔案
       # ======================================================
       - name: Validate source files
         shell: bash
@@ -605,18 +631,79 @@ jobs:
             exit 1
           }
 
+          test -f validation/margin_strategy_validation.py || {
+            echo "ERROR: validation/margin_strategy_validation.py does not exist."
+            exit 1
+          }
+
+          test -f validation/margin_state_config.json || {
+            echo "ERROR: validation/margin_state_config.json does not exist."
+            exit 1
+          }
+
+          test -f validation/margin_backtest_config.json || {
+            echo "ERROR: validation/margin_backtest_config.json does not exist."
+            exit 1
+          }
+
           python -m py_compile investment_os_production.py
           python -m py_compile collectors/collect_free_data.py
+          python -m py_compile validation/margin_strategy_validation.py
+
+          python -m json.tool             validation/margin_state_config.json             > /dev/null
+
+          python -m json.tool             validation/margin_backtest_config.json             > /dev/null
+
           echo "Source validation passed."
 
       # ======================================================
-      # 8. 執行 Investment OS
+      # 10. 執行 Investment OS
       # ======================================================
       - name: Run OS Engine
         shell: bash
         run: |
           set -euo pipefail
           python investment_os_production.py
+
+      # ======================================================
+      # 9. 將每日 Raw Target Margin 轉成有記憶的執行狀態
+      # ======================================================
+      - name: Update persistent margin state
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python validation/margin_strategy_validation.py live             --signals output/latest_signals.json             --state output/margin_state.json             --execution-output output/margin_execution.json             --state-config validation/margin_state_config.json             --reference-equity "${REFERENCE_EQUITY_NTD}"
+
+          python -m json.tool             output/margin_state.json             > /dev/null
+
+          python -m json.tool             output/margin_execution.json             > /dev/null
+
+          echo "Persistent margin state:"
+          cat output/margin_state.json
+
+          echo "Margin execution decision:"
+          cat output/margin_execution.json
+
+      # ======================================================
+      # 10. 手動執行時，跑探索性四策略驗證
+      # live_public 歷史可能含修訂值，因此這不是正式 strict PIT 結果。
+      # ======================================================
+      - name: Run exploratory margin validation
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python validation/margin_strategy_validation.py self-test
+
+          python validation/margin_strategy_validation.py backtest             --history output/score_history.csv             --ticker QQQ             --state-config validation/margin_state_config.json             --backtest-config validation/margin_backtest_config.json             --output-dir output/margin_validation
+
+          echo "Strategy comparison:"
+          cat output/margin_validation/strategy_comparison.csv
+
+          echo "Validation report:"
+          cat output/margin_validation/validation_report.json
       #=======================================================
       - name: Validate score and date alignment
         shell: bash
@@ -756,7 +843,7 @@ jobs:
           PY
 
       # ======================================================
-      # 9. 驗證輸出
+      # 13. 驗證輸出
       # ======================================================
       - name: Validate output
         shell: bash
@@ -768,6 +855,8 @@ jobs:
             "output/score_history.csv"
             "output/module_data_quality.csv"
             "output/raw_indicator_snapshot.csv"
+            "output/margin_state.json"
+            "output/margin_execution.json"
           )
 
           for file in "${REQUIRED_NONEMPTY_FILES[@]}"; do
@@ -785,6 +874,8 @@ jobs:
           fi
 
           python -m json.tool output/latest_signals.json > /dev/null
+          python -m json.tool output/margin_state.json > /dev/null
+          python -m json.tool output/margin_execution.json > /dev/null
 
           python - <<'PY'
           import json
@@ -814,6 +905,7 @@ jobs:
               "risk_overrides",
               "decision_reasons",
               "raw_indicators",
+              "margin_execution",
           }
 
           missing_json_keys = required_json_keys - set(payload)
@@ -892,6 +984,94 @@ jobs:
           scores = payload.get("scores", {})
           modules = payload.get("modules", {})
           data_quality = payload.get("data_quality", {})
+          margin_execution = payload.get(
+              "margin_execution",
+              {},
+          )
+
+          required_margin_execution_fields = {
+              "signal_date",
+              "effective_date",
+              "raw_target_margin_pct",
+              "confirmed_target_margin_pct",
+              "model_actual_margin_pct",
+              "action",
+              "reasons",
+              "hard_exit",
+              "reference_equity",
+              "recommended_loan_amount",
+          }
+
+          missing_margin_execution_fields = (
+              required_margin_execution_fields
+              - set(
+                  margin_execution
+              )
+          )
+
+          if missing_margin_execution_fields:
+              raise AssertionError(
+                  "margin_execution missing fields: "
+                  f"{sorted(missing_margin_execution_fields)}"
+              )
+
+          for field_name in (
+              "raw_target_margin_pct",
+              "confirmed_target_margin_pct",
+              "model_actual_margin_pct",
+          ):
+              field_value = margin_execution.get(
+                  field_name
+              )
+
+              if (
+                  field_value is None
+                  or not 0 <= float(field_value) <= 20
+              ):
+                  raise AssertionError(
+                      f"Invalid margin_execution.{field_name}: "
+                      f"{field_value}"
+                  )
+
+          reference_equity = margin_execution.get(
+              "reference_equity"
+          )
+
+          recommended_loan = margin_execution.get(
+              "recommended_loan_amount"
+          )
+
+          expected_loan = (
+              float(reference_equity)
+              * float(
+                  margin_execution[
+                      "model_actual_margin_pct"
+                  ]
+              )
+              / 100.0
+          )
+
+          if abs(
+              float(recommended_loan)
+              - expected_loan
+          ) > 0.01:
+              raise AssertionError(
+                  "recommended_loan_amount formula mismatch: "
+                  f"actual={recommended_loan}, "
+                  f"expected={expected_loan}"
+              )
+
+          if margin_execution.get(
+              "hard_exit"
+          ):
+              if float(
+                  margin_execution[
+                      "model_actual_margin_pct"
+                  ]
+              ) != 0:
+                  raise AssertionError(
+                      "Hard exit must set model_actual_margin_pct to zero."
+                  )
 
           target_margin = allocation.get("Target_Margin_Pct")
           risk_score = scores.get("Risk_Score")
@@ -1078,7 +1258,7 @@ jobs:
           PY
 
       # ======================================================
-      # 10. 將 output 寫回 main
+      # 14. 將 output 寫回 main
       # ======================================================
       - name: Commit and push output to main
         shell: bash
@@ -1128,7 +1308,7 @@ jobs:
           cp -a /tmp/investment-os-output/. output/
 
       # ======================================================
-      # 11. 從 main/site 建立 Pages Artifact
+      # 15. 從 main/site 建立 Pages Artifact
       # ======================================================
       - name: Prepare GitHub Pages site
         shell: bash
@@ -1149,6 +1329,11 @@ jobs:
           cp output/score_history.csv /tmp/pages-site/output/score_history.csv
           cp output/module_data_quality.csv /tmp/pages-site/output/module_data_quality.csv
           cp output/raw_indicator_snapshot.csv /tmp/pages-site/output/raw_indicator_snapshot.csv
+          cp output/margin_execution.json /tmp/pages-site/output/margin_execution.json
+
+          if [ -d "output/margin_validation" ]; then
+            cp -a               output/margin_validation               /tmp/pages-site/output/
+          fi
 
           touch /tmp/pages-site/.nojekyll
 
@@ -1159,7 +1344,7 @@ jobs:
           find /tmp/pages-site -maxdepth 3 -type f | sort
 
       # ======================================================
-      # 12. 設定與部署 GitHub Pages
+      # 16. 設定與部署 GitHub Pages
       # ======================================================
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
