@@ -10,6 +10,10 @@
   "entry_date": null,
   "entry_price": null,
   "peak_price": null,
+  "last_model_decision_date": null,
+  "scheduled_alpha_demand_margin_pct": 0.0,
+  "scheduled_forecast_rank": null,
+  "scheduled_expected_relative_alpha_pct": null,
   "last_action": "EXIT_ALL",
   "last_reason": [
     "Timing_Alpha_Exit"

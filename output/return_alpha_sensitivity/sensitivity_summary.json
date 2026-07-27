@@ -1,0 +1,7 @@
+{
+  "profile_count": 8,
+  "positive_rate_vs_fixed_matched": 1.0,
+  "rate_above_0_50pp_excess": 0.0,
+  "best_profile_by_excess_cagr": "interval_5",
+  "note": "Diagnostic only. The workflow does not auto-select the historical best profile."
+}

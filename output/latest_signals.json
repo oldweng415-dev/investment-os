@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-07-23",
   "decision_date": "2026-07-24",
-  "generated_at": "2026-07-27T10:57:38.678150+00:00",
+  "generated_at": "2026-07-27T11:31:29.157653+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -342,25 +342,29 @@
     "note": "model_actual_margin_pct is a persistent model target, not broker-confirmed debt."
   },
   "return_alpha": {
-    "model_version": "v2_relative_alpha_calibrated_experts",
+    "model_version": "v3_rank_relative_alpha_nonoverlap",
     "signal_date": "2026-07-23",
     "effective_date": "2026-07-24",
+    "decision_due": true,
+    "decision_interval_business_days": 10,
+    "last_model_decision_date": null,
     "expert": "pullback",
-    "expected_timing_alpha_60d_pct": -0.957580714521889,
-    "regime_baseline_60d_pct": 3.731410936030806,
-    "expected_net_return_60d_pct": 2.773830221508917,
-    "raw_probability": 0.48277178219469763,
-    "probability_positive": 0.5385247905247905,
-    "forecast_percentile": 0.36671722743151314,
-    "calibration_method": "oos_isotonic",
-    "calibration_samples": 2200.0,
-    "calibration_brier": 0.24167827202601166,
-    "calibration_ece": 0.028865334186435138,
+    "expected_relative_alpha_60d_pct": -1.6946615833757945,
+    "stable_expected_relative_alpha_60d_pct": -2.5472863682799116,
+    "static_baseline_60d_pct": 4.608831538440536,
+    "expected_net_return_60d_pct": 2.9141699550647413,
+    "forecast_rank": 0.29463722877807386,
+    "stable_forecast_rank": 0.29463722877807386,
+    "rank_pass_count": 0,
+    "rank_stability_lookback_days": 5,
+    "diagnostic_probability": 0.4242055108886242,
     "alpha_demand_margin_pct": 0.0,
     "risk_cap_margin_pct": 4.0,
     "alpha_reasons": [
-      "No_Alpha_Tier",
-      "Expert_pullback"
+      "No_Rank_Tier",
+      "Expert_pullback",
+      "Stable_Rank_0.295",
+      "Rank_Passes_0"
     ],
     "risk_reasons": [],
     "raw_target_margin_pct": 0.0,
@@ -377,6 +381,6 @@
     "peak_price": null,
     "model_train_end": "2026-06-01",
     "strict_pit_ready": false,
-    "note": "V2 predicts relative Timing Alpha and uses OOS probability calibration. It remains experimental until strict PIT and live paper-trade validation pass."
+    "note": "V3 uses direct relative-alpha ranking, a 10-business-day decision cadence, and daily risk exits. Diagnostic probability does not determine leverage."
   }
 }
