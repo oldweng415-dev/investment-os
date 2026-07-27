@@ -5,6 +5,7 @@ import argparse
 import copy
 import json
 import math
+from collections import defaultdict, deque
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -52,38 +53,65 @@ except ImportError:
 
 @dataclass
 class ReturnAlphaConfig:
+    model_version: str = "v2_relative_alpha_calibrated_experts"
     ticker: str = "QQQ"
     horizons: Tuple[int, ...] = (20, 60, 120)
     horizon_weights: Tuple[float, ...] = (0.20, 0.55, 0.25)
     min_train_days: int = 1260
     train_window_days: int = 2520
     refit_frequency: str = "monthly"
-    ridge_penalty: float = 25.0
+    ridge_penalty: float = 40.0
     target_winsor_lower: float = 0.01
     target_winsor_upper: float = 0.99
     annual_borrow_rate: float = 0.04
     round_trip_cost_bps: float = 14.0
 
-    probability_tier_1: float = 0.54
-    probability_tier_2: float = 0.58
-    probability_tier_3: float = 0.62
-    probability_tier_4: float = 0.66
-    expected_net_60d_tier_1_pct: float = 0.50
-    expected_net_60d_tier_2_pct: float = 1.50
-    expected_net_60d_tier_3_pct: float = 3.00
-    expected_net_60d_tier_4_pct: float = 5.00
-    margin_tier_1_pct: float = 1.0
-    margin_tier_2_pct: float = 3.0
-    margin_tier_3_pct: float = 5.0
+    # Reduce overlapping forward-return labels and emphasize recent data.
+    training_stride_days: int = 5
+    recency_half_life_days: int = 756
+
+    # Point-in-time conditional baseline used to form Timing Alpha.
+    regime_baseline_window_labels: int = 1000
+    regime_baseline_min_samples: int = 40
+    minimum_timing_alpha_pct: float = 0.50
+
+    # OOS probability calibration.
+    calibration_min_samples: int = 250
+    calibration_bins: int = 10
+    calibration_shrinkage: float = 0.80
+    probability_cap: float = 0.78
+
+    # Expert model requirements.
+    expert_min_train_rows: int = 300
+    require_price_above_ma200: bool = True
+    risk_off_margin_pct: float = 0.0
+
+    # Sparse, high-conviction mapping.
+    probability_tier_1: float = 0.58
+    probability_tier_2: float = 0.63
+    probability_tier_3: float = 0.68
+    probability_tier_4: float = 0.73
+    expected_timing_alpha_tier_1_pct: float = 0.50
+    expected_timing_alpha_tier_2_pct: float = 1.50
+    expected_timing_alpha_tier_3_pct: float = 2.50
+    expected_timing_alpha_tier_4_pct: float = 4.00
+    percentile_tier_1: float = 0.70
+    percentile_tier_2: float = 0.80
+    percentile_tier_3: float = 0.90
+    percentile_tier_4: float = 0.95
+    margin_tier_1_pct: float = 2.0
+    margin_tier_2_pct: float = 4.0
+    margin_tier_3_pct: float = 6.0
     margin_tier_4_pct: float = 8.0
     max_alpha_margin_pct: float = 8.0
 
-    require_price_above_ma200: bool = True
-    pullback_bonus_pct: float = 1.0
+    # Bull-pullback expert.
     pullback_min_pct: float = -12.0
     pullback_max_pct: float = -2.0
-    backwardation_cap_pct: float = 2.0
+    pullback_bonus_pct: float = 0.0
 
+    # Risk cap, kept separate from Alpha Demand.
+    backwardation_cap_pct: float = 2.0
     risk_cap_margin_45_50: float = 2.0
     risk_cap_margin_50_55: float = 4.0
     risk_cap_margin_55_60: float = 6.0
@@ -94,14 +122,45 @@ class ReturnAlphaConfig:
     coverage_cap_if_below_80: float = 4.0
     regime_cap_if_below_45: float = 2.0
 
+    # Alpha invalidation and execution exits.
+    exit_probability: float = 0.50
+    exit_timing_alpha_pct: float = 0.0
+    time_stop_business_days: int = 15
+    time_stop_min_return_pct: float = 0.0
+    breadth_shock_5d_threshold: float = -12.0
+    risk_score_shock_5d_threshold: float = 10.0
+    shock_reduce_fraction: float = 0.50
+
+    # Validation.
     evaluation_fold_years: int = 2
     bootstrap_iterations: int = 2000
     bootstrap_block_months: int = 3
     random_seed: int = 415
     run_sensitivity: bool = False
     sensitivity_probability_offsets: Tuple[float, ...] = (-0.02, 0.0, 0.02)
-    sensitivity_max_margins: Tuple[float, ...] = (5.0, 8.0, 10.0)
+    sensitivity_alpha_offsets_pct: Tuple[float, ...] = (-0.50, 0.0, 0.50)
+    sensitivity_max_margins: Tuple[float, ...] = (6.0, 8.0)
 
+
+@dataclass
+class ReturnAlphaState:
+    model_actual_margin_pct: float = 0.0
+    confirmed_target_margin_pct: float = 0.0
+    increase_streak: int = 0
+    decrease_streak: int = 0
+    last_trade_date: Optional[str] = None
+    last_increase_date: Optional[str] = None
+    last_increase_iso_week: Optional[str] = None
+    last_processed_signal_date: Optional[str] = None
+    entry_date: Optional[str] = None
+    entry_price: Optional[float] = None
+    peak_price: Optional[float] = None
+    last_action: str = "INITIALIZE"
+    last_reason: Optional[List[str]] = None
+
+    def __post_init__(self) -> None:
+        if self.last_reason is None:
+            self.last_reason = []
 
 FEATURE_BASE_COLUMNS = [
     "Market_Regime",
@@ -139,6 +198,7 @@ def load_dataclass_config(path: Optional[str], cls: Any) -> Any:
             "horizons",
             "horizon_weights",
             "sensitivity_probability_offsets",
+            "sensitivity_alpha_offsets_pct",
             "sensitivity_max_margins",
         ):
             if name in values:
@@ -147,16 +207,16 @@ def load_dataclass_config(path: Optional[str], cls: Any) -> Any:
 
 
 
-def load_margin_state(path: Path, initial_actual_margin_pct: float = 0.0) -> MarginState:
+def load_margin_state(path: Path, initial_actual_margin_pct: float = 0.0) -> ReturnAlphaState:
     if not path.exists():
-        return MarginState(
+        return ReturnAlphaState(
             model_actual_margin_pct=float(initial_actual_margin_pct),
             confirmed_target_margin_pct=float(initial_actual_margin_pct),
         )
     payload = json.loads(path.read_text(encoding="utf-8"))
-    allowed = {field.name for field in fields(MarginState)}
+    allowed = {field.name for field in fields(ReturnAlphaState)}
     clean = {key: value for key, value in payload.items() if key in allowed}
-    return MarginState(**clean)
+    return ReturnAlphaState(**clean)
 
 def load_price_series(
     ticker: str,
@@ -226,7 +286,7 @@ def build_features(history: pd.DataFrame, prices: pd.Series) -> pd.DataFrame:
         if column in history.columns:
             feature[column] = pd.to_numeric(history[column], errors="coerce")
 
-    for days in (5, 20, 60, 120, 252):
+    for days in (5, 10, 20, 60, 120, 252):
         feature[f"momentum_{days}d"] = price.pct_change(days)
 
     for days in (20, 50, 100, 200):
@@ -238,9 +298,11 @@ def build_features(history: pd.DataFrame, prices: pd.Series) -> pd.DataFrame:
     feature["ma50_to_ma200"] = ma50 / ma200 - 1.0
 
     for days in (20, 60, 120):
-        feature[f"realized_vol_{days}d"] = returns.rolling(days, min_periods=days).std() * math.sqrt(252)
+        feature[f"realized_vol_{days}d"] = (
+            returns.rolling(days, min_periods=days).std() * math.sqrt(252)
+        )
 
-    for days in (20, 60, 252):
+    for days in (20, 60, 120, 252):
         rolling_high = price.rolling(days, min_periods=days).max()
         feature[f"drawdown_{days}d"] = price / rolling_high - 1.0
 
@@ -248,6 +310,24 @@ def build_features(history: pd.DataFrame, prices: pd.Series) -> pd.DataFrame:
     feature["vix_term_spread"] = (
         pd.to_numeric(history.get("VIX3M"), errors="coerce")
         - pd.to_numeric(history.get("VIX"), errors="coerce")
+    )
+    feature["vix_term_ratio"] = (
+        pd.to_numeric(history.get("VIX"), errors="coerce")
+        / pd.to_numeric(history.get("VIX3M"), errors="coerce").replace(0, np.nan)
+    )
+
+    # Acceleration and relative-strength style features.
+    feature["momentum_acceleration_5_20"] = (
+        feature["momentum_5d"] - feature["momentum_20d"] / 4.0
+    )
+    feature["momentum_acceleration_20_60"] = (
+        feature["momentum_20d"] - feature["momentum_60d"] / 3.0
+    )
+    feature["vol_acceleration_20_60"] = (
+        feature["realized_vol_20d"] - feature["realized_vol_60d"]
+    )
+    feature["drawdown_recovery_5d"] = (
+        feature["momentum_5d"] - feature["drawdown_60d"].diff(5)
     )
 
     change_columns = [
@@ -259,15 +339,80 @@ def build_features(history: pd.DataFrame, prices: pd.Series) -> pd.DataFrame:
         "Margin_Score",
         "Breadth_Score",
         "NFL_13W_Change",
+        "HY_OAS_Percentile",
+        "VIX",
+        "Net_Fed_Liquidity",
     ]
     for column in change_columns:
         if column in feature.columns:
             feature[f"{column}_change_5d"] = feature[column].diff(5)
             feature[f"{column}_change_20d"] = feature[column].diff(20)
+            feature[f"{column}_acceleration"] = (
+                feature[f"{column}_change_5d"]
+                - feature[f"{column}_change_20d"] / 4.0
+            )
 
-    feature = feature.replace([np.inf, -np.inf], np.nan)
-    return feature
+    # Interactions intended for timing, not for the long-run risk cap.
+    feature["trend_strength"] = (
+        feature["price_to_ma200"].fillna(0.0)
+        + feature["ma50_to_ma200"].fillna(0.0)
+    )
+    feature["credit_liquidity_interaction"] = (
+        (100.0 - feature.get("HY_OAS_Percentile", pd.Series(50.0, index=feature.index)))
+        * feature.get("Liquidity", pd.Series(50.0, index=feature.index))
+        / 10_000.0
+    )
+    feature["breadth_trend_interaction"] = (
+        feature.get("Breadth_Score", pd.Series(50.0, index=feature.index))
+        * (feature["price_to_ma200"] > 0).astype(float)
+        / 100.0
+    )
 
+    feature["expert"] = classify_expert(feature)
+    feature["regime_key"] = classify_regime_key(feature)
+    return feature.replace([np.inf, -np.inf], np.nan)
+
+
+def classify_expert(feature: pd.DataFrame) -> pd.Series:
+    bull = (
+        feature["price_to_ma200"].fillna(-1.0) > 0
+    ) & (
+        feature["ma50_to_ma200"].fillna(-1.0) > 0
+    )
+    drawdown = feature["drawdown_60d"].fillna(0.0)
+    pullback = bull & drawdown.between(-0.12, -0.02)
+    expert = pd.Series("risk_off", index=feature.index, dtype=object)
+    expert.loc[bull & ~pullback] = "trend"
+    expert.loc[pullback] = "pullback"
+    return expert
+
+
+def classify_regime_key(feature: pd.DataFrame) -> pd.Series:
+    trend = pd.Series("bear", index=feature.index, dtype=object)
+    trend.loc[feature["price_to_ma200"].fillna(-1.0) > 0] = "neutral"
+    trend.loc[
+        (feature["price_to_ma200"].fillna(-1.0) > 0)
+        & (feature["ma50_to_ma200"].fillna(-1.0) > 0)
+    ] = "bull"
+
+    vol = pd.Series("midvol", index=feature.index, dtype=object)
+    vol.loc[feature["realized_vol_60d"].fillna(0.25) < 0.18] = "lowvol"
+    vol.loc[feature["realized_vol_60d"].fillna(0.25) > 0.30] = "highvol"
+
+    credit = pd.Series("midcredit", index=feature.index, dtype=object)
+    credit_pct = feature.get(
+        "HY_OAS_Percentile",
+        pd.Series(50.0, index=feature.index),
+    ).fillna(50.0)
+    credit.loc[credit_pct < 35] = "easycredit"
+    credit.loc[credit_pct > 70] = "stresscredit"
+
+    pullback = pd.Series("shallow", index=feature.index, dtype=object)
+    dd = feature["drawdown_60d"].fillna(0.0)
+    pullback.loc[dd < -0.03] = "pullback"
+    pullback.loc[dd < -0.09] = "deep"
+
+    return trend + "|" + vol + "|" + credit + "|" + pullback
 
 def future_net_returns(
     prices: pd.Series,
@@ -282,60 +427,282 @@ def future_net_returns(
     return targets
 
 
+def point_in_time_regime_baseline(
+    net_return: pd.Series,
+    regime_key: pd.Series,
+    horizon: int,
+    cfg: ReturnAlphaConfig,
+) -> pd.Series:
+    """Conditional mean using only labels whose outcomes are known by date t."""
+    known_value = net_return.shift(horizon + 1)
+    known_regime = regime_key.shift(horizon + 1)
+    buckets: Dict[str, deque] = defaultdict(
+        lambda: deque(maxlen=cfg.regime_baseline_window_labels)
+    )
+    global_values: deque = deque(maxlen=cfg.regime_baseline_window_labels)
+    result = pd.Series(np.nan, index=net_return.index, dtype=float)
+
+    for date in net_return.index:
+        value = known_value.get(date)
+        old_regime = known_regime.get(date)
+        if pd.notna(value):
+            numeric = float(value)
+            global_values.append(numeric)
+            if pd.notna(old_regime):
+                buckets[str(old_regime)].append(numeric)
+
+        current_regime = str(regime_key.get(date))
+        values = buckets[current_regime]
+        if len(values) >= cfg.regime_baseline_min_samples:
+            result.loc[date] = float(np.mean(values))
+        elif len(global_values) >= cfg.regime_baseline_min_samples:
+            result.loc[date] = float(np.mean(global_values))
+
+    return result
+
+
+def build_timing_targets(
+    prices: pd.Series,
+    features: pd.DataFrame,
+    cfg: ReturnAlphaConfig,
+) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
+    net_targets = future_net_returns(prices, cfg)
+    baseline: Dict[int, pd.Series] = {}
+    timing: Dict[int, pd.Series] = {}
+    for horizon, target in net_targets.items():
+        baseline[horizon] = point_in_time_regime_baseline(
+            target,
+            features["regime_key"],
+            horizon,
+            cfg,
+        )
+        timing[horizon] = target - baseline[horizon]
+    return net_targets, baseline, timing
+
+
+def weighted_standardize(
+    frame: pd.DataFrame,
+    weights: np.ndarray,
+) -> Tuple[pd.DataFrame, pd.Series, pd.Series]:
+    values = frame.to_numpy(float)
+    weights = weights / max(weights.sum(), 1e-12)
+    means = pd.Series(np.sum(values * weights[:, None], axis=0), index=frame.columns)
+    centered = values - means.to_numpy(float)
+    variances = np.sum((centered ** 2) * weights[:, None], axis=0)
+    stds = pd.Series(np.sqrt(np.maximum(variances, 1e-12)), index=frame.columns)
+    stds = stds.replace(0, 1.0).fillna(1.0)
+    return ((frame - means) / stds).clip(-8, 8), means, stds
+
+
 def fit_ridge_forecaster(
     x_train: pd.DataFrame,
     y_train: pd.Series,
     x_predict: pd.DataFrame,
-    ridge_penalty: float,
-    lower_quantile: float,
-    upper_quantile: float,
-) -> Tuple[pd.Series, pd.Series, Dict[str, Any]]:
+    cfg: ReturnAlphaConfig,
+) -> Tuple[pd.Series, pd.Series, pd.Series, Dict[str, Any]]:
     valid = y_train.notna()
     x_train = x_train.loc[valid]
     y_train = y_train.loc[valid].astype(float)
     if len(y_train) < 250:
         raise ValueError("Fewer than 250 valid labeled observations.")
 
-    lower = float(y_train.quantile(lower_quantile))
-    upper = float(y_train.quantile(upper_quantile))
-    y = y_train.clip(lower, upper).to_numpy(float)
+    # Use lower-overlap samples while retaining the newest observation.
+    stride = max(int(cfg.training_stride_days), 1)
+    positions = np.arange(len(x_train))
+    keep = (positions % stride == 0) | (positions == len(x_train) - 1)
+    x_train = x_train.iloc[keep]
+    y_train = y_train.iloc[keep]
+
+    lower = float(y_train.quantile(cfg.target_winsor_lower))
+    upper = float(y_train.quantile(cfg.target_winsor_upper))
+    y_series = y_train.clip(lower, upper)
 
     medians = x_train.median(axis=0, skipna=True).fillna(0.0)
     train = x_train.fillna(medians).astype(float)
     predict = x_predict.fillna(medians).astype(float)
 
-    means = train.mean(axis=0)
-    stds = train.std(axis=0, ddof=0).replace(0, 1.0).fillna(1.0)
-    train_z = ((train - means) / stds).clip(-8, 8)
+    ages = np.arange(len(train) - 1, -1, -1, dtype=float) * stride
+    half_life = max(float(cfg.recency_half_life_days), 1.0)
+    sample_weights = np.exp(-math.log(2.0) * ages / half_life)
+    train_z, means, stds = weighted_standardize(train, sample_weights)
     predict_z = ((predict - means) / stds).clip(-8, 8)
 
     x = np.column_stack([np.ones(len(train_z)), train_z.to_numpy(float)])
     xp = np.column_stack([np.ones(len(predict_z)), predict_z.to_numpy(float)])
-    penalty = np.eye(x.shape[1]) * ridge_penalty
+    y = y_series.to_numpy(float)
+    sqrt_w = np.sqrt(sample_weights)
+    xw = x * sqrt_w[:, None]
+    yw = y * sqrt_w
+    penalty = np.eye(x.shape[1]) * cfg.ridge_penalty
     penalty[0, 0] = 0.0
-    beta = np.linalg.solve(x.T @ x + penalty, x.T @ y)
+    beta = np.linalg.solve(xw.T @ xw + penalty, xw.T @ yw)
 
     fitted = x @ beta
     residual = y - fitted
     residual_std = max(float(np.std(residual, ddof=1)), 1e-6)
-    prediction = np.clip(xp @ beta, -0.50, 0.80)
-    probability = norm.cdf(prediction / residual_std)
+    prediction = np.clip(xp @ beta, -0.30, 0.50)
 
-    pred_series = pd.Series(prediction, index=x_predict.index)
-    prob_series = pd.Series(probability, index=x_predict.index).clip(0.01, 0.99)
+    # Raw probability is empirical rather than a pure Gaussian extrapolation.
+    empirical_probability = np.array([
+        float(np.mean(residual > -value))
+        for value in prediction
+    ])
+    gaussian_probability = norm.cdf(prediction / residual_std)
+    raw_probability = 0.5 * empirical_probability + 0.5 * gaussian_probability
+
+    target_values = y_series.to_numpy(float)
+    percentile = np.array([
+        float(np.mean(target_values <= value))
+        for value in prediction
+    ])
+
     diagnostics = {
-        "train_rows": int(len(y_train)),
+        "train_rows_before_stride": int(valid.sum()),
+        "train_rows_after_stride": int(len(y_series)),
         "residual_std": residual_std,
         "target_mean": float(np.mean(y)),
         "target_positive_rate": float(np.mean(y > 0)),
         "feature_count": int(train_z.shape[1]),
     }
-    return pred_series, prob_series, diagnostics
+    return (
+        pd.Series(prediction, index=x_predict.index),
+        pd.Series(raw_probability, index=x_predict.index).clip(0.01, 0.99),
+        pd.Series(percentile, index=x_predict.index).clip(0.0, 1.0),
+        diagnostics,
+    )
 
+
+def isotonic_fit(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    order = np.argsort(x)
+    xs = np.asarray(x, dtype=float)[order]
+    ys = np.asarray(y, dtype=float)[order]
+    blocks = [[i, i, 1.0, ys[i]] for i in range(len(xs))]
+    index = 0
+    while index < len(blocks) - 1:
+        left_mean = blocks[index][3] / blocks[index][2]
+        right_mean = blocks[index + 1][3] / blocks[index + 1][2]
+        if left_mean <= right_mean:
+            index += 1
+            continue
+        merged = [
+            blocks[index][0],
+            blocks[index + 1][1],
+            blocks[index][2] + blocks[index + 1][2],
+            blocks[index][3] + blocks[index + 1][3],
+        ]
+        blocks[index:index + 2] = [merged]
+        index = max(index - 1, 0)
+
+    fitted = np.empty(len(xs), dtype=float)
+    for start, end, count, total in blocks:
+        fitted[start:end + 1] = total / count
+    unique_x, inverse = np.unique(xs, return_inverse=True)
+    unique_y = np.array([
+        fitted[inverse == idx].mean()
+        for idx in range(len(unique_x))
+    ])
+    return unique_x, unique_y
+
+
+def isotonic_predict(
+    raw_probability: pd.Series,
+    history_probability: pd.Series,
+    history_outcome: pd.Series,
+    cfg: ReturnAlphaConfig,
+) -> Tuple[pd.Series, Dict[str, Any]]:
+    aligned = pd.concat(
+        [history_probability.rename("p"), history_outcome.rename("y")],
+        axis=1,
+    ).dropna()
+    raw = raw_probability.astype(float)
+
+    if len(aligned) < cfg.calibration_min_samples:
+        calibrated = 0.5 + cfg.calibration_shrinkage * (raw - 0.5)
+        calibrated = calibrated.clip(1.0 - cfg.probability_cap, cfg.probability_cap)
+        return calibrated, {
+            "calibration_samples": int(len(aligned)),
+            "calibration_method": "shrink_only",
+            "brier_score": None,
+            "ece": None,
+        }
+
+    x_grid, y_grid = isotonic_fit(
+        aligned["p"].to_numpy(float),
+        aligned["y"].to_numpy(float),
+    )
+    predicted = np.interp(
+        raw.to_numpy(float),
+        x_grid,
+        y_grid,
+        left=y_grid[0],
+        right=y_grid[-1],
+    )
+    base_rate = float(aligned["y"].mean())
+    predicted = (
+        cfg.calibration_shrinkage * predicted
+        + (1.0 - cfg.calibration_shrinkage) * base_rate
+    )
+    calibrated = pd.Series(predicted, index=raw.index).clip(
+        1.0 - cfg.probability_cap,
+        cfg.probability_cap,
+    )
+
+    # In-sample calibration diagnostics are only descriptive; trading uses
+    # previously generated OOS forecasts and already-known outcomes.
+    hist_calibrated = np.interp(
+        aligned["p"].to_numpy(float),
+        x_grid,
+        y_grid,
+        left=y_grid[0],
+        right=y_grid[-1],
+    )
+    brier = float(np.mean((hist_calibrated - aligned["y"].to_numpy(float)) ** 2))
+    bins = pd.qcut(aligned["p"], q=min(cfg.calibration_bins, len(aligned)), duplicates="drop")
+    temp = aligned.assign(calibrated=hist_calibrated, bucket=bins)
+    grouped = temp.groupby("bucket", observed=True)
+    ece = float(sum(
+        len(group) / len(temp)
+        * abs(float(group["calibrated"].mean()) - float(group["y"].mean()))
+        for _, group in grouped
+    ))
+    return calibrated, {
+        "calibration_samples": int(len(aligned)),
+        "calibration_method": "oos_isotonic",
+        "brier_score": brier,
+        "ece": ece,
+        "base_rate": base_rate,
+    }
 
 def monthly_refit_dates(index: pd.DatetimeIndex) -> List[pd.Timestamp]:
     frame = pd.DataFrame(index=index)
     return list(frame.groupby([index.year, index.month]).head(1).index)
+
+
+def model_feature_columns(features: pd.DataFrame) -> List[str]:
+    return [
+        column
+        for column in features.columns
+        if column not in {"expert", "regime_key"}
+    ]
+
+
+def expert_train_index(
+    features: pd.DataFrame,
+    train_index: pd.DatetimeIndex,
+    expert: str,
+    cfg: ReturnAlphaConfig,
+) -> pd.DatetimeIndex:
+    if expert == "risk_off":
+        return pd.DatetimeIndex([])
+    same = train_index[features.loc[train_index, "expert"].astype(str) == expert]
+    if len(same) >= cfg.expert_min_train_rows:
+        return same
+    bull = train_index[
+        features.loc[train_index, "expert"].astype(str).isin(["trend", "pullback"])
+    ]
+    if len(bull) >= cfg.expert_min_train_rows:
+        return bull
+    return train_index
 
 
 def generate_oos_forecasts(
@@ -343,76 +710,85 @@ def generate_oos_forecasts(
     prices: pd.Series,
     cfg: ReturnAlphaConfig,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Generate monthly-refitted, purged out-of-sample forecasts.
-
-    Each horizon uses its own label embargo. For example, a 20-day model
-    predicting on date t may train only through t-21, while a 120-day model
-    may train only through t-121. This avoids wasting recent labels for the
-    shorter horizon without leaking incomplete outcomes.
-    """
-
     features = build_features(history, prices)
     prices = prices.reindex(features.index)
-    targets = future_net_returns(prices, cfg)
+    _, baselines, timing_targets = build_timing_targets(prices, features, cfg)
+    columns = model_feature_columns(features)
 
     output = pd.DataFrame(index=features.index)
     model_records: List[Dict[str, Any]] = []
     refit_dates = monthly_refit_dates(features.index)
+    hurdle = cfg.minimum_timing_alpha_pct / 100.0
+    calibration_horizon = 60 if 60 in cfg.horizons else cfg.horizons[0]
 
     for refit_index, prediction_start in enumerate(refit_dates):
         start_position = features.index.get_loc(prediction_start)
-
         if refit_index + 1 < len(refit_dates):
             prediction_end = refit_dates[refit_index + 1] - pd.Timedelta(days=1)
             prediction_index = features.loc[prediction_start:prediction_end].index
         else:
             prediction_index = features.loc[prediction_start:].index
 
-        horizon_predictions: List[pd.Series] = []
-        horizon_probabilities: List[pd.Series] = []
-        horizon_train_ends: List[pd.Timestamp] = []
+        month_pred = pd.DataFrame(index=prediction_index)
+        month_pred["expert"] = features.loc[prediction_index, "expert"]
         all_horizons_available = True
+        horizon_train_ends: List[pd.Timestamp] = []
 
-        for horizon in cfg.horizons:
+        for horizon, horizon_weight in zip(cfg.horizons, cfg.horizon_weights):
             label_end_position = start_position - horizon - 1
             if label_end_position < cfg.min_train_days - 1:
                 all_horizons_available = False
                 break
+            train_start_position = max(0, label_end_position - cfg.train_window_days + 1)
+            full_train_index = features.index[train_start_position:label_end_position + 1]
+            horizon_train_ends.append(full_train_index[-1])
 
-            train_start_position = max(
-                0,
-                label_end_position - cfg.train_window_days + 1,
-            )
-            train_index = features.index[
-                train_start_position:
-                label_end_position + 1
-            ]
+            pred_h = pd.Series(np.nan, index=prediction_index, dtype=float)
+            prob_h = pd.Series(np.nan, index=prediction_index, dtype=float)
+            pct_h = pd.Series(np.nan, index=prediction_index, dtype=float)
 
-            pred, prob, diagnostics = fit_ridge_forecaster(
-                features.loc[train_index],
-                targets[horizon].loc[train_index],
-                features.loc[prediction_index],
-                cfg.ridge_penalty,
-                cfg.target_winsor_lower,
-                cfg.target_winsor_upper,
-            )
+            for expert in ("trend", "pullback", "risk_off"):
+                pred_index = prediction_index[month_pred["expert"] == expert]
+                if len(pred_index) == 0:
+                    continue
+                if expert == "risk_off":
+                    pred_h.loc[pred_index] = 0.0
+                    prob_h.loc[pred_index] = 0.01
+                    pct_h.loc[pred_index] = 0.0
+                    continue
 
-            # Normalize every horizon to an approximate 60-trading-day scale.
-            scaled_pred = pred * (60.0 / horizon)
-            horizon_predictions.append(scaled_pred)
-            horizon_probabilities.append(prob)
-            horizon_train_ends.append(train_index[-1])
-
-            model_records.append(
-                {
+                train_index = expert_train_index(
+                    features,
+                    full_train_index,
+                    expert,
+                    cfg,
+                )
+                pred, prob, percentile, diagnostics = fit_ridge_forecaster(
+                    features.loc[train_index, columns],
+                    timing_targets[horizon].loc[train_index],
+                    features.loc[pred_index, columns],
+                    cfg,
+                )
+                pred_h.loc[pred_index] = pred * (60.0 / horizon)
+                prob_h.loc[pred_index] = prob
+                pct_h.loc[pred_index] = percentile
+                model_records.append({
                     "prediction_start": prediction_start.date().isoformat(),
                     "prediction_end": prediction_index[-1].date().isoformat(),
                     "train_start": train_index[0].date().isoformat(),
                     "train_end": train_index[-1].date().isoformat(),
                     "purge_trading_days": horizon + 1,
                     "horizon_days": horizon,
+                    "expert": expert,
+                    "horizon_weight": horizon_weight,
                     **diagnostics,
-                }
+                })
+
+            month_pred[f"timing_alpha_{horizon}"] = pred_h
+            month_pred[f"raw_probability_{horizon}"] = prob_h
+            month_pred[f"percentile_{horizon}"] = pct_h
+            month_pred[f"baseline_{horizon}"] = (
+                baselines[horizon].reindex(prediction_index) * (60.0 / horizon)
             )
 
         if not all_horizons_available:
@@ -420,26 +796,63 @@ def generate_oos_forecasts(
 
         weights = np.asarray(cfg.horizon_weights, dtype=float)
         weights = weights / weights.sum()
-        pred_frame = pd.concat(horizon_predictions, axis=1)
-        prob_frame = pd.concat(horizon_probabilities, axis=1)
+        timing_frame = month_pred[[f"timing_alpha_{h}" for h in cfg.horizons]]
+        raw_prob_frame = month_pred[[f"raw_probability_{h}" for h in cfg.horizons]]
+        percentile_frame = month_pred[[f"percentile_{h}" for h in cfg.horizons]]
+        baseline_frame = month_pred[[f"baseline_{h}" for h in cfg.horizons]]
 
-        output.loc[
-            prediction_index,
-            "expected_net_return_60d",
-        ] = pred_frame.mul(weights, axis=1).sum(axis=1)
-        output.loc[
-            prediction_index,
-            "probability_positive",
-        ] = prob_frame.mul(weights, axis=1).sum(axis=1)
-        output.loc[
-            prediction_index,
-            "model_train_end",
-        ] = max(horizon_train_ends).date().isoformat()
+        combined_timing = timing_frame.mul(weights, axis=1).sum(axis=1)
+        raw_probability = raw_prob_frame.mul(weights, axis=1).sum(axis=1)
+        combined_percentile = percentile_frame.mul(weights, axis=1).sum(axis=1)
+        combined_baseline = baseline_frame.mul(weights, axis=1).sum(axis=1)
 
-    output["price_to_ma200"] = features["price_to_ma200"]
-    output["ma50_to_ma200"] = features["ma50_to_ma200"]
-    output["drawdown_60d"] = features["drawdown_60d"]
-    output["momentum_20d"] = features["momentum_20d"]
+        # Only earlier OOS forecasts with known 60-day outcomes may calibrate.
+        calibration_end_position = start_position - calibration_horizon - 1
+        if calibration_end_position >= 0:
+            calibration_end = features.index[calibration_end_position]
+            calibration_prob = output.loc[:calibration_end, "raw_probability"] if "raw_probability" in output else pd.Series(dtype=float)
+            calibration_outcome = (
+                timing_targets[calibration_horizon].loc[:calibration_end] > hurdle
+            ).astype(float)
+        else:
+            calibration_prob = pd.Series(dtype=float)
+            calibration_outcome = pd.Series(dtype=float)
+
+        calibrated_probability, calibration_diag = isotonic_predict(
+            raw_probability,
+            calibration_prob,
+            calibration_outcome,
+            cfg,
+        )
+
+        output.loc[prediction_index, "expected_timing_alpha_60d"] = combined_timing
+        output.loc[prediction_index, "regime_baseline_60d"] = combined_baseline
+        output.loc[prediction_index, "expected_net_return_60d"] = (
+            combined_baseline + combined_timing
+        )
+        output.loc[prediction_index, "raw_probability"] = raw_probability
+        output.loc[prediction_index, "probability_positive"] = calibrated_probability
+        output.loc[prediction_index, "forecast_percentile"] = combined_percentile
+        output.loc[prediction_index, "expert"] = month_pred["expert"]
+        output.loc[prediction_index, "model_train_end"] = (
+            max(horizon_train_ends).date().isoformat()
+        )
+        output.loc[prediction_index, "calibration_method"] = calibration_diag["calibration_method"]
+        output.loc[prediction_index, "calibration_samples"] = calibration_diag["calibration_samples"]
+        output.loc[prediction_index, "calibration_brier"] = calibration_diag.get("brier_score")
+        output.loc[prediction_index, "calibration_ece"] = calibration_diag.get("ece")
+
+    passthrough = [
+        "price_to_ma200",
+        "ma50_to_ma200",
+        "drawdown_60d",
+        "momentum_20d",
+        "Breadth_Score_change_5d",
+        "Risk_Score_change_5d",
+    ]
+    for column in passthrough:
+        if column in features:
+            output[column] = features[column]
     return output, pd.DataFrame(model_records)
 
 
@@ -448,74 +861,12 @@ def generate_latest_forecast(
     prices: pd.Series,
     cfg: ReturnAlphaConfig,
 ) -> Tuple[pd.Series, pd.DataFrame]:
-    """Fit only the models needed for the latest live decision."""
-
-    features = build_features(history, prices)
-    prices = prices.reindex(features.index)
-    targets = future_net_returns(prices, cfg)
-    latest_date = features.index[-1]
-    latest_position = len(features.index) - 1
-
-    predictions: List[float] = []
-    probabilities: List[float] = []
-    records: List[Dict[str, Any]] = []
-    train_ends: List[pd.Timestamp] = []
-
-    for horizon in cfg.horizons:
-        label_end_position = latest_position - horizon - 1
-        if label_end_position < cfg.min_train_days - 1:
-            raise RuntimeError(
-                f"Insufficient labeled history for {horizon}-day live model."
-            )
-
-        train_start_position = max(
-            0,
-            label_end_position - cfg.train_window_days + 1,
-        )
-        train_index = features.index[
-            train_start_position:
-            label_end_position + 1
-        ]
-
-        pred, prob, diagnostics = fit_ridge_forecaster(
-            features.loc[train_index],
-            targets[horizon].loc[train_index],
-            features.loc[[latest_date]],
-            cfg.ridge_penalty,
-            cfg.target_winsor_lower,
-            cfg.target_winsor_upper,
-        )
-
-        predictions.append(float(pred.iloc[0]) * 60.0 / horizon)
-        probabilities.append(float(prob.iloc[0]))
-        train_ends.append(train_index[-1])
-        records.append(
-            {
-                "prediction_date": latest_date.date().isoformat(),
-                "train_start": train_index[0].date().isoformat(),
-                "train_end": train_index[-1].date().isoformat(),
-                "purge_trading_days": horizon + 1,
-                "horizon_days": horizon,
-                **diagnostics,
-            }
-        )
-
-    weights = np.asarray(cfg.horizon_weights, dtype=float)
-    weights = weights / weights.sum()
-    row = pd.Series(
-        {
-            "expected_net_return_60d": float(np.dot(predictions, weights)),
-            "probability_positive": float(np.dot(probabilities, weights)),
-            "model_train_end": max(train_ends).date().isoformat(),
-            "price_to_ma200": float(features.loc[latest_date, "price_to_ma200"]),
-            "ma50_to_ma200": float(features.loc[latest_date, "ma50_to_ma200"]),
-            "drawdown_60d": float(features.loc[latest_date, "drawdown_60d"]),
-            "momentum_20d": float(features.loc[latest_date, "momentum_20d"]),
-        },
-        name=latest_date,
-    )
-    return row, pd.DataFrame(records)
-
+    forecasts, records = generate_oos_forecasts(history, prices, cfg)
+    latest_date = history.index.intersection(forecasts.index)[-1]
+    row = forecasts.loc[latest_date]
+    if pd.isna(row.get("expected_timing_alpha_60d")):
+        raise RuntimeError("Latest Return Alpha forecast is unavailable.")
+    return row, records
 
 def risk_cap_from_scores(row: pd.Series, cfg: ReturnAlphaConfig) -> Tuple[float, List[str]]:
     risk = float(row.get("Risk_Score")) if pd.notna(row.get("Risk_Score")) else 100.0
@@ -567,38 +918,69 @@ def alpha_demand_from_forecast(
     forecast_row: pd.Series,
     cfg: ReturnAlphaConfig,
 ) -> Tuple[float, List[str]]:
-    expected = forecast_row.get("expected_net_return_60d")
+    timing_alpha = forecast_row.get("expected_timing_alpha_60d")
+    expected_net = forecast_row.get("expected_net_return_60d")
     probability = forecast_row.get("probability_positive")
-    if pd.isna(expected) or pd.isna(probability):
-        return 0.0, ["Forecast_Unavailable"]
+    percentile = forecast_row.get("forecast_percentile")
+    expert = str(forecast_row.get("expert", "risk_off"))
 
-    expected_pct = 100.0 * float(expected)
+    if any(pd.isna(value) for value in (timing_alpha, expected_net, probability, percentile)):
+        return 0.0, ["Forecast_Unavailable"]
+    if expert == "risk_off":
+        return cfg.risk_off_margin_pct, ["Risk_Off_Expert"]
+
+    timing_pct = 100.0 * float(timing_alpha)
+    net_pct = 100.0 * float(expected_net)
     probability = float(probability)
+    percentile = float(percentile)
     demand = 0.0
-    tier = "No_Alpha_Tier"
+    tier_name = "No_Alpha_Tier"
 
     tiers = [
-        (cfg.probability_tier_1, cfg.expected_net_60d_tier_1_pct, cfg.margin_tier_1_pct, "Tier_1"),
-        (cfg.probability_tier_2, cfg.expected_net_60d_tier_2_pct, cfg.margin_tier_2_pct, "Tier_2"),
-        (cfg.probability_tier_3, cfg.expected_net_60d_tier_3_pct, cfg.margin_tier_3_pct, "Tier_3"),
-        (cfg.probability_tier_4, cfg.expected_net_60d_tier_4_pct, cfg.margin_tier_4_pct, "Tier_4"),
+        (
+            cfg.probability_tier_1,
+            cfg.expected_timing_alpha_tier_1_pct,
+            cfg.percentile_tier_1,
+            cfg.margin_tier_1_pct,
+            "Tier_1",
+        ),
+        (
+            cfg.probability_tier_2,
+            cfg.expected_timing_alpha_tier_2_pct,
+            cfg.percentile_tier_2,
+            cfg.margin_tier_2_pct,
+            "Tier_2",
+        ),
+        (
+            cfg.probability_tier_3,
+            cfg.expected_timing_alpha_tier_3_pct,
+            cfg.percentile_tier_3,
+            cfg.margin_tier_3_pct,
+            "Tier_3",
+        ),
+        (
+            cfg.probability_tier_4,
+            cfg.expected_timing_alpha_tier_4_pct,
+            cfg.percentile_tier_4,
+            cfg.margin_tier_4_pct,
+            "Tier_4",
+        ),
     ]
-    for p_threshold, r_threshold, margin, name in tiers:
-        if probability >= p_threshold and expected_pct >= r_threshold:
+    for p_threshold, alpha_threshold, pct_threshold, margin, name in tiers:
+        if (
+            probability >= p_threshold
+            and timing_pct >= alpha_threshold
+            and percentile >= pct_threshold
+            and net_pct > 0
+        ):
             demand = margin
-            tier = name
+            tier_name = name
 
-    reasons = [tier]
+    reasons = [tier_name, f"Expert_{expert}"]
     above_ma200 = float(forecast_row.get("price_to_ma200", -1.0)) > 0
     ma_trend = float(forecast_row.get("ma50_to_ma200", -1.0)) > 0
     if cfg.require_price_above_ma200 and not (above_ma200 and ma_trend):
         return 0.0, reasons + ["Long_Trend_Filter_Failed"]
-
-    drawdown_pct = 100.0 * float(forecast_row.get("drawdown_60d", 0.0))
-    if cfg.pullback_min_pct <= drawdown_pct <= cfg.pullback_max_pct and demand > 0:
-        demand += cfg.pullback_bonus_pct
-        reasons.append("Uptrend_Pullback_Bonus")
-
     return min(demand, cfg.max_alpha_margin_pct), reasons
 
 
@@ -616,45 +998,315 @@ def build_alpha_targets(
         risk_cap, risk_reasons = risk_cap_from_scores(history_row, cfg)
         target = min(demand, risk_cap)
         raw_targets[date] = target
-        records.append(
-            {
-                "date": date.date().isoformat(),
-                "expected_net_return_60d_pct": (
-                    100.0 * float(forecast_row["expected_net_return_60d"])
-                    if pd.notna(forecast_row.get("expected_net_return_60d")) else None
-                ),
-                "probability_positive": (
-                    float(forecast_row["probability_positive"])
-                    if pd.notna(forecast_row.get("probability_positive")) else None
-                ),
-                "alpha_demand_margin_pct": demand,
-                "risk_cap_margin_pct": risk_cap,
-                "alpha_raw_target_margin_pct": target,
-                "alpha_reasons": alpha_reasons,
-                "risk_reasons": risk_reasons,
-                "model_train_end": forecast_row.get("model_train_end"),
-            }
+        records.append({
+            "date": date.date().isoformat(),
+            "model_version": cfg.model_version,
+            "expert": forecast_row.get("expert"),
+            "expected_timing_alpha_60d_pct": (
+                100.0 * float(forecast_row["expected_timing_alpha_60d"])
+                if pd.notna(forecast_row.get("expected_timing_alpha_60d")) else None
+            ),
+            "regime_baseline_60d_pct": (
+                100.0 * float(forecast_row["regime_baseline_60d"])
+                if pd.notna(forecast_row.get("regime_baseline_60d")) else None
+            ),
+            "expected_net_return_60d_pct": (
+                100.0 * float(forecast_row["expected_net_return_60d"])
+                if pd.notna(forecast_row.get("expected_net_return_60d")) else None
+            ),
+            "raw_probability": (
+                float(forecast_row["raw_probability"])
+                if pd.notna(forecast_row.get("raw_probability")) else None
+            ),
+            "probability_positive": (
+                float(forecast_row["probability_positive"])
+                if pd.notna(forecast_row.get("probability_positive")) else None
+            ),
+            "forecast_percentile": (
+                float(forecast_row["forecast_percentile"])
+                if pd.notna(forecast_row.get("forecast_percentile")) else None
+            ),
+            "alpha_demand_margin_pct": demand,
+            "risk_cap_margin_pct": risk_cap,
+            "alpha_raw_target_margin_pct": target,
+            "alpha_reasons": alpha_reasons,
+            "risk_reasons": risk_reasons,
+            "model_train_end": forecast_row.get("model_train_end"),
+            "calibration_method": forecast_row.get("calibration_method"),
+            "calibration_samples": forecast_row.get("calibration_samples"),
+            "calibration_brier": forecast_row.get("calibration_brier"),
+            "calibration_ece": forecast_row.get("calibration_ece"),
+        })
+    return (
+        pd.Series(raw_targets, name="Alpha_Raw_Target_Margin_Pct").sort_index(),
+        pd.DataFrame(records),
+    )
+
+
+def business_days_between_dates(start: Optional[str], end: pd.Timestamp) -> int:
+    if not start:
+        return 10 ** 9
+    start_date = pd.Timestamp(start).date()
+    end_date = pd.Timestamp(end).date()
+    if end_date <= start_date:
+        return 0
+    return int(np.busday_count(start_date, end_date))
+
+
+def alpha_hard_exit_reasons(
+    date: pd.Timestamp,
+    price: float,
+    forecast: pd.Series,
+    row: pd.Series,
+    state: ReturnAlphaState,
+    cfg: ReturnAlphaConfig,
+    state_cfg: StateMachineConfig,
+) -> List[str]:
+    reasons: List[str] = []
+    risk = float(row.get("Risk_Score")) if pd.notna(row.get("Risk_Score")) else 100.0
+    liquidity = float(row.get("Liquidity")) if pd.notna(row.get("Liquidity")) else 0.0
+    margin_score = float(row.get("Margin_Score")) if pd.notna(row.get("Margin_Score")) else 0.0
+    coverage = float(row.get("Coverage_Ratio")) if pd.notna(row.get("Coverage_Ratio")) else 0.0
+    probability = float(forecast.get("probability_positive")) if pd.notna(forecast.get("probability_positive")) else 0.0
+    timing_pct = 100.0 * float(forecast.get("expected_timing_alpha_60d")) if pd.notna(forecast.get("expected_timing_alpha_60d")) else -999.0
+    expert = str(forecast.get("expert", "risk_off"))
+
+    if risk > state_cfg.hard_exit_risk_score:
+        reasons.append("Risk_Score_Hard_Exit")
+    if liquidity < state_cfg.hard_exit_liquidity_score:
+        reasons.append("Liquidity_Hard_Exit")
+    if margin_score < state_cfg.hard_exit_margin_score:
+        reasons.append("Margin_Score_Hard_Exit")
+    if coverage < state_cfg.hard_exit_coverage_ratio:
+        reasons.append("Coverage_Hard_Exit")
+
+    if state.model_actual_margin_pct > 0:
+        if probability < cfg.exit_probability:
+            reasons.append("Calibrated_Probability_Exit")
+        if timing_pct <= cfg.exit_timing_alpha_pct:
+            reasons.append("Timing_Alpha_Exit")
+        if expert == "risk_off":
+            reasons.append("Risk_Off_Expert_Exit")
+        if state.entry_date and state.entry_price:
+            held = business_days_between_dates(state.entry_date, date)
+            return_pct = 100.0 * (price / float(state.entry_price) - 1.0)
+            if (
+                held >= cfg.time_stop_business_days
+                and return_pct <= cfg.time_stop_min_return_pct
+            ):
+                reasons.append("Time_Stop_No_Follow_Through")
+    return reasons
+
+
+def update_alpha_state(
+    date: pd.Timestamp,
+    price: float,
+    raw_target: float,
+    forecast: pd.Series,
+    row: pd.Series,
+    state: ReturnAlphaState,
+    cfg: ReturnAlphaConfig,
+    state_cfg: StateMachineConfig,
+) -> Tuple[ReturnAlphaState, Dict[str, Any]]:
+    next_state = copy.deepcopy(state)
+    signal_date = pd.Timestamp(date).normalize()
+    signal_date_str = signal_date.date().isoformat()
+    current = float(next_state.model_actual_margin_pct)
+    raw_target = float(np.clip(raw_target, 0.0, state_cfg.max_target_margin_pct))
+
+    if next_state.last_processed_signal_date == signal_date_str:
+        return next_state, {
+            "signal_date": signal_date_str,
+            "raw_target_margin_pct": raw_target,
+            "confirmed_target_margin_pct": current,
+            "model_actual_margin_pct": current,
+            "action": "NO_NEW_SIGNAL",
+            "reasons": ["Signal_Date_Already_Processed"],
+            "hard_exit": False,
+        }
+
+    if current > 0:
+        next_state.peak_price = max(float(next_state.peak_price or price), price)
+
+    hard_reasons = alpha_hard_exit_reasons(
+        signal_date,
+        price,
+        forecast,
+        row,
+        next_state,
+        cfg,
+        state_cfg,
+    )
+    action = "HOLD"
+    reasons: List[str] = []
+    hard_exit = bool(hard_reasons)
+
+    if hard_exit:
+        next_state.model_actual_margin_pct = 0.0
+        next_state.confirmed_target_margin_pct = 0.0
+        next_state.increase_streak = 0
+        next_state.decrease_streak = 0
+        next_state.entry_date = None
+        next_state.entry_price = None
+        next_state.peak_price = None
+        action = "EXIT_ALL" if current > 0 else "HOLD_ZERO"
+        reasons = hard_reasons
+        if current > 0:
+            next_state.last_trade_date = signal_date_str
+    else:
+        breadth_change = forecast.get("Breadth_Score_change_5d")
+        risk_change = forecast.get("Risk_Score_change_5d")
+        shock = (
+            current > 0
+            and (
+                (pd.notna(breadth_change) and float(breadth_change) <= cfg.breadth_shock_5d_threshold)
+                or (pd.notna(risk_change) and float(risk_change) >= cfg.risk_score_shock_5d_threshold)
+            )
         )
-    return pd.Series(raw_targets, name="Alpha_Raw_Target_Margin_Pct").sort_index(), pd.DataFrame(records)
+        if shock:
+            new_target = max(0.0, min(raw_target, current * cfg.shock_reduce_fraction))
+            next_state.model_actual_margin_pct = new_target
+            next_state.confirmed_target_margin_pct = new_target
+            next_state.increase_streak = 0
+            next_state.decrease_streak = 0
+            next_state.last_trade_date = signal_date_str
+            action = "SHOCK_REDUCE"
+            reasons = ["Breadth_Or_Risk_Shock"]
+        elif raw_target <= 0 and current > 0:
+            next_state.model_actual_margin_pct = 0.0
+            next_state.confirmed_target_margin_pct = 0.0
+            next_state.increase_streak = 0
+            next_state.decrease_streak = 0
+            next_state.last_trade_date = signal_date_str
+            next_state.entry_date = None
+            next_state.entry_price = None
+            next_state.peak_price = None
+            action = "REPAY_ALL"
+            reasons = ["Alpha_Demand_Zero"]
+        else:
+            difference = raw_target - current
+            if abs(difference) < state_cfg.no_trade_band_pct:
+                next_state.increase_streak = 0
+                next_state.decrease_streak = 0
+                action = "HOLD"
+                reasons = ["Inside_No_Trade_Band"]
+            elif difference >= state_cfg.increase_trigger_pct:
+                next_state.increase_streak += 1
+                next_state.decrease_streak = 0
+                days_since_trade = business_days_between_dates(next_state.last_trade_date, signal_date)
+                days_since_increase = business_days_between_dates(next_state.last_increase_date, signal_date)
+                week_key = f"{signal_date.isocalendar().year}-W{signal_date.isocalendar().week:02d}"
+                weekly_ok = (
+                    not state_cfg.increase_once_per_iso_week
+                    or next_state.last_increase_iso_week != week_key
+                )
+                eligible = (
+                    next_state.increase_streak >= state_cfg.increase_confirm_days
+                    and days_since_trade >= state_cfg.min_business_days_between_trades
+                    and days_since_increase >= state_cfg.increase_cooldown_business_days
+                    and weekly_ok
+                )
+                if eligible:
+                    new_target = min(
+                        raw_target,
+                        current + state_cfg.max_increase_step_pct,
+                        state_cfg.max_target_margin_pct,
+                    )
+                    next_state.model_actual_margin_pct = new_target
+                    next_state.confirmed_target_margin_pct = new_target
+                    next_state.last_trade_date = signal_date_str
+                    next_state.last_increase_date = signal_date_str
+                    next_state.last_increase_iso_week = week_key
+                    next_state.increase_streak = 0
+                    if current <= 0 and new_target > 0:
+                        next_state.entry_date = signal_date_str
+                        next_state.entry_price = float(price)
+                        next_state.peak_price = float(price)
+                    action = "INCREASE_MARGIN"
+                    reasons = ["Increase_Executed"]
+                else:
+                    action = "WAIT_INCREASE_CONFIRMATION"
+                    reasons = [
+                        f"Increase_Confirmation_{next_state.increase_streak}_of_{state_cfg.increase_confirm_days}"
+                    ]
+            elif difference <= -state_cfg.decrease_trigger_pct:
+                next_state.decrease_streak += 1
+                next_state.increase_streak = 0
+                if next_state.decrease_streak >= state_cfg.decrease_confirm_days:
+                    new_target = max(
+                        raw_target,
+                        current - state_cfg.max_decrease_step_pct,
+                        0.0,
+                    )
+                    next_state.model_actual_margin_pct = new_target
+                    next_state.confirmed_target_margin_pct = new_target
+                    next_state.last_trade_date = signal_date_str
+                    next_state.decrease_streak = 0
+                    action = "DECREASE_MARGIN" if new_target > 0 else "REPAY_ALL"
+                    reasons = ["Decrease_Executed"]
+                    if new_target <= 0:
+                        next_state.entry_date = None
+                        next_state.entry_price = None
+                        next_state.peak_price = None
+                else:
+                    action = "WAIT_DECREASE_CONFIRMATION"
+                    reasons = [
+                        f"Decrease_Confirmation_{next_state.decrease_streak}_of_{state_cfg.decrease_confirm_days}"
+                    ]
+            else:
+                action = "HOLD"
+                reasons = ["No_Trigger"]
+
+    next_state.last_processed_signal_date = signal_date_str
+    next_state.last_action = action
+    next_state.last_reason = reasons
+    decision = {
+        "signal_date": signal_date_str,
+        "raw_target_margin_pct": round(raw_target, 4),
+        "confirmed_target_margin_pct": round(next_state.confirmed_target_margin_pct, 4),
+        "model_actual_margin_pct": round(next_state.model_actual_margin_pct, 4),
+        "action": action,
+        "reasons": reasons,
+        "hard_exit": hard_exit,
+        "increase_streak": next_state.increase_streak,
+        "decrease_streak": next_state.decrease_streak,
+        "entry_date": next_state.entry_date,
+        "entry_price": next_state.entry_price,
+        "peak_price": next_state.peak_price,
+    }
+    return next_state, decision
 
 
 def apply_state_machine(
     history: pd.DataFrame,
+    prices: pd.Series,
+    forecasts: pd.DataFrame,
     raw_target: pd.Series,
+    cfg: ReturnAlphaConfig,
     state_cfg: StateMachineConfig,
 ) -> Tuple[pd.Series, pd.DataFrame]:
-    state = MarginState()
+    state = ReturnAlphaState()
     targets: Dict[pd.Timestamp, float] = {}
     records: List[Dict[str, Any]] = []
     for date in history.index:
         row = history.loc[date]
-        signal = signal_from_history_row(date, row)
-        signal["Target_Margin_Pct"] = float(raw_target.get(date, 0.0))
-        state, decision = update_margin_state(signal, state, state_cfg)
+        forecast = forecasts.loc[date] if date in forecasts.index else pd.Series(dtype=float)
+        state, decision = update_alpha_state(
+            date,
+            float(prices.loc[date]),
+            float(raw_target.get(date, 0.0)),
+            forecast,
+            row,
+            state,
+            cfg,
+            state_cfg,
+        )
         targets[date] = state.model_actual_margin_pct
         records.append({"date": date.date().isoformat(), **decision})
-    return pd.Series(targets, name="Alpha_Dynamic_Target_Margin_Pct"), pd.DataFrame(records)
-
+    return (
+        pd.Series(targets, name="Alpha_Dynamic_Target_Margin_Pct"),
+        pd.DataFrame(records),
+    )
 
 def compare_strategies(
     history: pd.DataFrame,
@@ -788,6 +1440,67 @@ def forecast_diagnostics(
     }
 
 
+def probability_calibration_diagnostics(
+    forecasts: pd.DataFrame,
+    prices: pd.Series,
+    cfg: ReturnAlphaConfig,
+    horizon: int = 60,
+) -> Dict[str, Any]:
+    future_net = (
+        prices.shift(-horizon) / prices - 1.0
+        - cfg.annual_borrow_rate * horizon / 252.0
+        - cfg.round_trip_cost_bps / 10_000.0
+    )
+    timing_realized = future_net - forecasts.get(
+        "regime_baseline_60d",
+        pd.Series(np.nan, index=forecasts.index),
+    )
+    outcome = (timing_realized > cfg.minimum_timing_alpha_pct / 100.0).astype(float)
+    aligned = pd.concat(
+        [
+            forecasts.get("probability_positive").rename("p"),
+            outcome.rename("y"),
+        ],
+        axis=1,
+    ).dropna()
+    if len(aligned) < 100:
+        return {
+            "samples": int(len(aligned)),
+            "brier_score": None,
+            "baseline_brier_score": None,
+            "ece": None,
+        }
+    p = aligned["p"].clip(0.0, 1.0)
+    y = aligned["y"]
+    brier = float(np.mean((p - y) ** 2))
+    base = float(y.mean())
+    baseline_brier = float(np.mean((base - y) ** 2))
+    buckets = pd.qcut(p, q=min(cfg.calibration_bins, len(aligned)), duplicates="drop")
+    temp = aligned.assign(bucket=buckets)
+    ece = float(sum(
+        len(group) / len(temp)
+        * abs(float(group["p"].mean()) - float(group["y"].mean()))
+        for _, group in temp.groupby("bucket", observed=True)
+    ))
+    reliability = [
+        {
+            "bucket": str(bucket),
+            "count": int(len(group)),
+            "predicted": float(group["p"].mean()),
+            "realized": float(group["y"].mean()),
+        }
+        for bucket, group in temp.groupby("bucket", observed=True)
+    ]
+    return {
+        "samples": int(len(aligned)),
+        "brier_score": brier,
+        "baseline_brier_score": baseline_brier,
+        "brier_skill": baseline_brier - brier,
+        "ece": ece,
+        "reliability_table": reliability,
+    }
+
+
 def fold_analysis(ledgers: Mapping[str, pd.DataFrame], fold_years: int) -> pd.DataFrame:
     alpha = ledgers["return_alpha_dynamic"]
     start_year = alpha.index.min().year
@@ -814,30 +1527,43 @@ def fold_analysis(ledgers: Mapping[str, pd.DataFrame], fold_years: int) -> pd.Da
 
 
 def sensitivity_profiles(base: ReturnAlphaConfig) -> List[Tuple[str, ReturnAlphaConfig]]:
-    """Create a small neighborhood around the base mapping.
-
-    These profiles are reported together; the engine never silently selects
-    the best historical profile. This is a robustness test, not a tuner.
-    """
-
     profiles: List[Tuple[str, ReturnAlphaConfig]] = []
     for probability_offset in base.sensitivity_probability_offsets:
-        for max_margin in base.sensitivity_max_margins:
-            cfg = copy.deepcopy(base)
-            cfg.probability_tier_1 = float(np.clip(base.probability_tier_1 + probability_offset, 0.50, 0.80))
-            cfg.probability_tier_2 = float(np.clip(base.probability_tier_2 + probability_offset, 0.50, 0.80))
-            cfg.probability_tier_3 = float(np.clip(base.probability_tier_3 + probability_offset, 0.50, 0.80))
-            cfg.probability_tier_4 = float(np.clip(base.probability_tier_4 + probability_offset, 0.50, 0.80))
-            cfg.max_alpha_margin_pct = max_margin
-            scale = max_margin / max(base.max_alpha_margin_pct, 1e-9)
-            cfg.margin_tier_1_pct = min(max_margin, base.margin_tier_1_pct * scale)
-            cfg.margin_tier_2_pct = min(max_margin, base.margin_tier_2_pct * scale)
-            cfg.margin_tier_3_pct = min(max_margin, base.margin_tier_3_pct * scale)
-            cfg.margin_tier_4_pct = min(max_margin, base.margin_tier_4_pct * scale)
-            name = f"p_offset_{probability_offset:+.2f}_max_{max_margin:.0f}"
-            profiles.append((name, cfg))
+        for alpha_offset in base.sensitivity_alpha_offsets_pct:
+            for max_margin in base.sensitivity_max_margins:
+                cfg = copy.deepcopy(base)
+                for name in (
+                    "probability_tier_1",
+                    "probability_tier_2",
+                    "probability_tier_3",
+                    "probability_tier_4",
+                ):
+                    setattr(
+                        cfg,
+                        name,
+                        float(np.clip(getattr(base, name) + probability_offset, 0.50, 0.85)),
+                    )
+                for name in (
+                    "expected_timing_alpha_tier_1_pct",
+                    "expected_timing_alpha_tier_2_pct",
+                    "expected_timing_alpha_tier_3_pct",
+                    "expected_timing_alpha_tier_4_pct",
+                ):
+                    setattr(cfg, name, max(0.0, getattr(base, name) + alpha_offset))
+                cfg.max_alpha_margin_pct = max_margin
+                scale = max_margin / max(base.max_alpha_margin_pct, 1e-9)
+                for name in (
+                    "margin_tier_1_pct",
+                    "margin_tier_2_pct",
+                    "margin_tier_3_pct",
+                    "margin_tier_4_pct",
+                ):
+                    setattr(cfg, name, min(max_margin, getattr(base, name) * scale))
+                profile = (
+                    f"p_{probability_offset:+.2f}_a_{alpha_offset:+.2f}_m_{max_margin:.0f}"
+                )
+                profiles.append((profile, cfg))
     return profiles
-
 
 def run_parameter_sensitivity(
     history: pd.DataFrame,
@@ -874,7 +1600,10 @@ def run_parameter_sensitivity(
         raw_target, _ = build_alpha_targets(history, forecasts, profile_cfg)
         dynamic_target, _ = apply_state_machine(
             history,
+            prices,
+            forecasts,
             raw_target,
+            profile_cfg,
             alpha_state_cfg,
         )
         evaluation_target = dynamic_target.reindex(
@@ -929,6 +1658,10 @@ def run_parameter_sensitivity(
                     profile_cfg.probability_tier_1
                     - base_cfg.probability_tier_1
                 ),
+                "timing_alpha_offset_pct": (
+                    profile_cfg.expected_timing_alpha_tier_1_pct
+                    - base_cfg.expected_timing_alpha_tier_1_pct
+                ),
                 "max_alpha_margin_pct": profile_cfg.max_alpha_margin_pct,
                 "alpha_cagr": alpha_metrics["cagr"],
                 "fixed_matched_cagr": matched_metrics["cagr"],
@@ -970,7 +1703,14 @@ def run_full_validation(
     prices = prices.reindex(common)
     forecasts, model_records = generate_oos_forecasts(history, prices, alpha_cfg)
     alpha_raw, alpha_records = build_alpha_targets(history, forecasts, alpha_cfg)
-    alpha_dynamic, state_records = apply_state_machine(history, alpha_raw, alpha_state_cfg)
+    alpha_dynamic, state_records = apply_state_machine(
+        history,
+        prices,
+        forecasts,
+        alpha_raw,
+        alpha_cfg,
+        alpha_state_cfg,
+    )
 
     evaluation_start = forecasts["expected_net_return_60d"].first_valid_index()
     if evaluation_start is None:
@@ -1021,7 +1761,16 @@ def run_full_validation(
             alpha_cfg.bootstrap_block_months,
             alpha_cfg.random_seed + 1,
         ),
-        "forecast_diagnostics": forecast_diagnostics(prices.loc[evaluation_start:], alpha_dynamic.loc[evaluation_start:], 60),
+        "forecast_diagnostics": forecast_diagnostics(
+            prices.loc[evaluation_start:],
+            alpha_dynamic.loc[evaluation_start:],
+            60,
+        ),
+        "probability_calibration": probability_calibration_diagnostics(
+            forecasts.loc[evaluation_start:],
+            prices.loc[evaluation_start:],
+            alpha_cfg,
+        ),
     }
     folds = fold_analysis(ledgers, alpha_cfg.evaluation_fold_years)
     sensitivity = run_parameter_sensitivity(
@@ -1059,51 +1808,78 @@ def run_full_validation(
         "sensitivity": sensitivity,
         "pit_ready": pit_ready,
         "evaluation_start": evaluation_start,
+        "alpha_cfg_version": alpha_cfg.model_version,
     }
 
 
 def validation_summary(result: Mapping[str, Any]) -> Dict[str, Any]:
     metrics_frame = result["metrics"].set_index("strategy")
+    stress_frame = result["stress_metrics"].set_index("strategy")
     alpha = metrics_frame.loc["return_alpha_dynamic"]
     no_margin = metrics_frame.loc["no_margin"]
     matched = metrics_frame.loc["fixed_exposure_matched"]
+    stress_alpha = stress_frame.loc["return_alpha_dynamic"]
+    stress_matched = stress_frame.loc["fixed_exposure_matched"]
     folds = result["folds"]
     valid_folds = folds.dropna(subset=["return_alpha_dynamic_cagr"])
-    alpha_vs_matched = result["statistics"]["monthly_block_bootstrap_vs_fixed_matched"]
+    bootstrap = result["statistics"]["monthly_block_bootstrap_vs_fixed_matched"]
+    calibration = result["statistics"].get("probability_calibration", {})
     sensitivity = result["sensitivity"]
-    sensitivity_positive_rate = float(
-        (sensitivity["alpha_minus_fixed_matched_cagr"] > 0).mean()
-    ) if not sensitivity.empty else 0.0
+    sensitivity_positive_rate = (
+        float((sensitivity["alpha_minus_fixed_matched_cagr"] > 0).mean())
+        if not sensitivity.empty else 0.0
+    )
+    excess_cagr = float(alpha["cagr"]) - float(matched["cagr"])
+    stress_excess_cagr = float(stress_alpha["cagr"]) - float(stress_matched["cagr"])
+    fold_win_rate = (
+        float(valid_folds["alpha_beats_fixed_matched"].mean())
+        if not valid_folds.empty else 0.0
+    )
 
     checks = {
         "alpha_cagr_above_no_margin": float(alpha["cagr"]) > float(no_margin["cagr"]),
-        "alpha_cagr_above_fixed_exposure_matched": float(alpha["cagr"]) > float(matched["cagr"]),
-        "alpha_drawdown_not_worse_than_no_margin_by_5pp": float(alpha["max_drawdown"]) >= float(no_margin["max_drawdown"]) - 0.05,
-        "alpha_annual_trades_below_30": float(alpha["annual_trades"]) <= 30.0,
-        "bootstrap_probability_positive_above_70pct": float(alpha_vs_matched.get("probability_positive") or 0.0) >= 0.70,
-        "fold_win_rate_vs_fixed_matched_above_60pct": (
-            float(valid_folds["alpha_beats_fixed_matched"].mean()) >= 0.60 if not valid_folds.empty else False
+        "fixed_matched_excess_cagr_above_0_50pp": excess_cagr >= 0.005,
+        "alpha_drawdown_not_worse_than_no_margin_by_5pp": (
+            float(alpha["max_drawdown"]) >= float(no_margin["max_drawdown"]) - 0.05
+        ),
+        "alpha_annual_trades_below_25": float(alpha["annual_trades"]) <= 25.0,
+        "bootstrap_probability_positive_above_70pct": (
+            float(bootstrap.get("probability_positive") or 0.0) >= 0.70
+        ),
+        "fold_win_rate_vs_fixed_matched_above_60pct": fold_win_rate >= 0.60,
+        "stress_excess_cagr_positive": stress_excess_cagr > 0.0,
+        "calibration_ece_below_0_05": (
+            calibration.get("ece") is not None
+            and float(calibration["ece"]) <= 0.05
+        ),
+        "calibration_brier_beats_baseline": (
+            calibration.get("brier_skill") is not None
+            and float(calibration["brier_skill"]) > 0
         ),
     }
-
     if not sensitivity.empty:
         checks["sensitivity_positive_rate_above_60pct"] = (
             sensitivity_positive_rate >= 0.60
         )
+
     return {
+        "model_version": result.get("alpha_cfg_version", "unknown"),
         "strict_pit_ready": bool(result["pit_ready"]),
+        "fixed_matched_excess_cagr": excess_cagr,
+        "stress_fixed_matched_excess_cagr": stress_excess_cagr,
+        "fold_win_rate_vs_fixed_matched": fold_win_rate,
         "checks": checks,
         "sensitivity_positive_rate": sensitivity_positive_rate,
         "passed_count": int(sum(checks.values())),
         "total_count": len(checks),
         "conclusion": (
-            "PROMISING_BUT_REQUIRES_STRICT_PIT"
-            if sum(checks.values()) >= 5 and not result["pit_ready"]
-            else "PASS" if all(checks.values()) and result["pit_ready"]
+            "PASS"
+            if all(checks.values()) and result["pit_ready"]
+            else "PROMISING_BUT_REQUIRES_STRICT_PIT"
+            if sum(checks.values()) >= max(6, len(checks) - 2) and not result["pit_ready"]
             else "INSUFFICIENT_RETURN_TIMING_EVIDENCE"
         ),
     }
-
 
 def write_validation_outputs(output_dir: Path, result: Mapping[str, Any]) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1184,33 +1960,49 @@ def command_live(args: argparse.Namespace) -> None:
     )
     latest_date = history.index[-1]
     latest_row = history.loc[latest_date]
-    demand, alpha_reasons = alpha_demand_from_forecast(
-        latest_forecast,
-        alpha_cfg,
-    )
-    risk_cap, risk_reasons = risk_cap_from_scores(
-        latest_row,
-        alpha_cfg,
-    )
+    demand, alpha_reasons = alpha_demand_from_forecast(latest_forecast, alpha_cfg)
+    risk_cap, risk_reasons = risk_cap_from_scores(latest_row, alpha_cfg)
     raw_target = min(demand, risk_cap)
 
     signal_payload = json.loads(Path(args.signals).read_text(encoding="utf-8"))
-    signal = signal_from_history_row(latest_date, latest_row)
-    signal["effective_date"] = signal_payload.get("decision_date", latest_date.date().isoformat())
-    signal["Target_Margin_Pct"] = raw_target
-    signal["Risk_Overrides"] = signal_payload.get("risk_overrides", [])
-    signal["Critical_Data_Ok"] = signal_payload.get("data_quality", {}).get("critical_data_ok", True)
-
     state = load_margin_state(Path(args.state), args.initial_actual_margin_pct)
-    new_state, decision = update_margin_state(signal, state, alpha_state_cfg)
+    new_state, decision = update_alpha_state(
+        latest_date,
+        float(prices.loc[latest_date]),
+        raw_target,
+        latest_forecast,
+        latest_row,
+        state,
+        alpha_cfg,
+        alpha_state_cfg,
+    )
     save_json(Path(args.state), asdict(new_state))
 
     reference_equity = float(args.reference_equity)
     execution = {
+        "model_version": alpha_cfg.model_version,
         "signal_date": latest_date.date().isoformat(),
-        "effective_date": signal["effective_date"],
-        "expected_net_return_60d_pct": 100.0 * float(latest_forecast["expected_net_return_60d"]),
+        "effective_date": signal_payload.get(
+            "decision_date",
+            latest_date.date().isoformat(),
+        ),
+        "expert": latest_forecast.get("expert"),
+        "expected_timing_alpha_60d_pct": (
+            100.0 * float(latest_forecast["expected_timing_alpha_60d"])
+        ),
+        "regime_baseline_60d_pct": (
+            100.0 * float(latest_forecast["regime_baseline_60d"])
+        ),
+        "expected_net_return_60d_pct": (
+            100.0 * float(latest_forecast["expected_net_return_60d"])
+        ),
+        "raw_probability": float(latest_forecast["raw_probability"]),
         "probability_positive": float(latest_forecast["probability_positive"]),
+        "forecast_percentile": float(latest_forecast["forecast_percentile"]),
+        "calibration_method": latest_forecast.get("calibration_method"),
+        "calibration_samples": latest_forecast.get("calibration_samples"),
+        "calibration_brier": latest_forecast.get("calibration_brier"),
+        "calibration_ece": latest_forecast.get("calibration_ece"),
         "alpha_demand_margin_pct": demand,
         "risk_cap_margin_pct": risk_cap,
         "alpha_reasons": alpha_reasons,
@@ -1221,7 +2013,12 @@ def command_live(args: argparse.Namespace) -> None:
         "action": decision["action"],
         "reasons": decision["reasons"],
         "reference_equity": reference_equity,
-        "recommended_loan_amount": reference_equity * float(decision["model_actual_margin_pct"]) / 100.0,
+        "recommended_loan_amount": (
+            reference_equity * float(decision["model_actual_margin_pct"]) / 100.0
+        ),
+        "entry_date": decision.get("entry_date"),
+        "entry_price": decision.get("entry_price"),
+        "peak_price": decision.get("peak_price"),
         "model_train_end": latest_forecast.get("model_train_end"),
         "strict_pit_ready": not history.get(
             "historical_data_is_revised",
@@ -1229,19 +2026,27 @@ def command_live(args: argparse.Namespace) -> None:
         ).map(
             lambda value: str(value).strip().lower() in {"1", "true", "yes", "y"}
         ).any(),
-        "note": "Return-seeking forecast is experimental until strict PIT and live paper-trade validation pass.",
+        "note": (
+            "V2 predicts relative Timing Alpha and uses OOS probability calibration. "
+            "It remains experimental until strict PIT and live paper-trade validation pass."
+        ),
     }
     save_json(Path(args.execution_output), execution)
     signal_payload["return_alpha"] = execution
     save_json(Path(args.signals), signal_payload)
     print(json.dumps(json_safe(execution), ensure_ascii=False, indent=2))
 
-
 def command_self_test(_: argparse.Namespace) -> None:
     rng = np.random.default_rng(415)
-    dates = pd.bdate_range("2000-01-03", periods=1800)
+    dates = pd.bdate_range("2000-01-03", periods=2200)
     regime = np.sin(np.arange(len(dates)) / 90.0)
-    returns = 0.00025 + 0.00045 * regime + rng.normal(0, 0.009, len(dates))
+    pullback = -0.03 * (np.sin(np.arange(len(dates)) / 17.0) > 0.85)
+    returns = (
+        0.00020
+        + 0.00055 * regime
+        - 0.00020 * (regime < -0.4)
+        + rng.normal(0, 0.009, len(dates))
+    )
     prices = pd.Series(100.0 * np.cumprod(1.0 + returns), index=dates)
     history = pd.DataFrame(index=dates)
     history["Market_Regime"] = 50 + 30 * regime
@@ -1260,43 +2065,55 @@ def command_self_test(_: argparse.Namespace) -> None:
     history["VIX3M"] = history["VIX"] + 2.0
     history["VIX_Backwardation"] = 0.0
     history["NFL_13W_Change"] = 10 * regime
+    history["Net_Fed_Liquidity"] = 5000 + np.cumsum(regime)
     history["Target_Margin_Pct"] = np.where(regime > 0, 5.0, 0.0)
     history["historical_data_is_revised"] = False
 
     cfg = ReturnAlphaConfig(
         horizons=(20, 40),
         horizon_weights=(0.5, 0.5),
-        min_train_days=500,
-        train_window_days=1000,
+        min_train_days=600,
+        train_window_days=1200,
+        calibration_min_samples=100,
         bootstrap_iterations=100,
         run_sensitivity=False,
     )
     state_cfg = StateMachineConfig(
+        max_target_margin_pct=8.0,
         increase_confirm_days=2,
         decrease_confirm_days=1,
         max_increase_step_pct=2.0,
-        max_decrease_step_pct=4.0,
+        max_decrease_step_pct=8.0,
     )
     bt_cfg = BacktestConfig()
-    result = run_full_validation(history, prices, cfg, state_cfg, StateMachineConfig(), bt_cfg)
-    assert result["forecasts"]["expected_net_return_60d"].notna().sum() > 100
+    result = run_full_validation(
+        history,
+        prices,
+        cfg,
+        state_cfg,
+        StateMachineConfig(),
+        bt_cfg,
+    )
+    assert result["forecasts"]["expected_timing_alpha_60d"].notna().sum() > 100
+    assert result["forecasts"]["probability_positive"].dropna().between(0, cfg.probability_cap).all()
     assert result["alpha_dynamic"].max() <= cfg.max_alpha_margin_pct
     assert "fixed_exposure_matched" in result["ledgers"]
 
-    # Look-ahead audit: changing the final tail must not alter forecasts well before the changed tail.
     altered = prices.copy()
     altered.iloc[-100:] *= np.linspace(1.0, 1.5, 100)
     forecast_a, _ = generate_oos_forecasts(history, prices, cfg)
     forecast_b, _ = generate_oos_forecasts(history, altered, cfg)
     safe_end = dates[-100 - max(cfg.horizons) - 5]
     comparison = pd.concat(
-        [forecast_a.loc[:safe_end, "expected_net_return_60d"], forecast_b.loc[:safe_end, "expected_net_return_60d"]],
+        [
+            forecast_a.loc[:safe_end, "expected_timing_alpha_60d"],
+            forecast_b.loc[:safe_end, "expected_timing_alpha_60d"],
+        ],
         axis=1,
     ).dropna()
     assert np.allclose(comparison.iloc[:, 0], comparison.iloc[:, 1], atol=1e-12)
-    print("Return alpha self-test passed.")
+    print("Return Alpha V2 self-test passed.")
     print(result["metrics"].to_string(index=False))
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Return-seeking margin alpha engine and validation.")
