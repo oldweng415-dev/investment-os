@@ -1,0 +1,19 @@
+{
+  "max_target_margin_pct": 10.0,
+  "no_trade_band_pct": 1.0,
+  "increase_trigger_pct": 1.0,
+  "decrease_trigger_pct": 1.0,
+  "increase_confirm_days": 2,
+  "decrease_confirm_days": 1,
+  "max_increase_step_pct": 2.0,
+  "max_decrease_step_pct": 4.0,
+  "min_business_days_between_trades": 2,
+  "increase_cooldown_business_days": 5,
+  "increase_once_per_iso_week": true,
+  "hard_exit_risk_score": 70.0,
+  "hard_exit_liquidity_score": 30.0,
+  "hard_exit_margin_score": 45.0,
+  "hard_exit_coverage_ratio": 0.6,
+  "critical_data_failure_is_hard_exit": true,
+  "risk_override_is_hard_exit": true
+}
