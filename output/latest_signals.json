@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-07-23",
   "decision_date": "2026-07-24",
-  "generated_at": "2026-07-27T02:51:56.485568+00:00",
+  "generated_at": "2026-07-27T04:27:42.619126+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -31,8 +31,8 @@
     ],
     "options_data_available": true,
     "iv30_pct": 19.6311,
-    "rv20_pct": 23.6802,
-    "iv_minus_rv_pct_points": -4.0491,
+    "rv20_pct": 22.7644,
+    "iv_minus_rv_pct_points": -3.1334,
     "strike_recommendation_available": false
   },
   "action": "僅限核心 ETF 小量分批；目標融資 2.7%，現金 15%–25%。",
@@ -317,8 +317,8 @@
     "positioning.equity_put_call": 0.61,
     "positioning.cftc_positioning": -45.5442,
     "positioning.iv30": 19.6311,
-    "positioning.rv20": 23.6802,
-    "positioning.iv_rv_spread": -4.0491
+    "positioning.rv20": 22.7644,
+    "positioning.iv_rv_spread": -3.1334
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
@@ -332,13 +332,11 @@
     "raw_target_margin_pct": 2.7,
     "confirmed_target_margin_pct": 0.0,
     "model_actual_margin_pct": 0.0,
-    "action": "WAIT_INCREASE_CONFIRMATION",
+    "action": "NO_NEW_SIGNAL",
     "reasons": [
-      "Increase_Confirmation_1_of_3"
+      "Signal_Date_Already_Processed"
     ],
     "hard_exit": false,
-    "increase_streak": 1,
-    "decrease_streak": 0,
     "reference_equity": 38827242.0,
     "recommended_loan_amount": 0.0,
     "note": "model_actual_margin_pct is a persistent model target, not broker-confirmed debt."
