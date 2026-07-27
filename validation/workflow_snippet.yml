@@ -1,0 +1,45 @@
+# Insert immediately AFTER "Run OS Engine" and BEFORE "Validate output".
+
+      - name: Update persistent margin state
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python validation/margin_strategy_validation.py live \
+            --signals output/latest_signals.json \
+            --state output/margin_state.json \
+            --execution-output output/margin_execution.json \
+            --state-config validation/margin_state_config.json \
+            --reference-equity 38827242
+
+          python -m json.tool output/margin_state.json > /dev/null
+          python -m json.tool output/margin_execution.json > /dev/null
+          cat output/margin_execution.json
+
+# Optional exploratory validation on manual runs.
+      - name: Run exploratory margin validation
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python validation/margin_strategy_validation.py self-test
+
+          python validation/margin_strategy_validation.py backtest \
+            --history output/score_history.csv \
+            --ticker QQQ \
+            --state-config validation/margin_state_config.json \
+            --backtest-config validation/margin_backtest_config.json \
+            --output-dir output/margin_validation
+
+          cat output/margin_validation/strategy_comparison.csv
+
+# Formal PIT walk-forward: run only after strict_pit score_history is available.
+#
+# python validation/margin_strategy_validation.py walk-forward \
+#   --history output/score_history.csv \
+#   --ticker QQQ \
+#   --state-config validation/margin_state_config.json \
+#   --backtest-config validation/margin_backtest_config.json \
+#   --output-dir output/margin_walk_forward \
+#   --strict-pit
