@@ -1,2 +1,3 @@
-observation_date,release_timestamp,effective_trade_date,metric,value,score,source,is_proxy,fetched_at
-2026-04-01,2026-07-22T05:14:38.554171+00:00,2026-07-22,gdpnow_real_gdp_saar,1.6817,53.6276,FRED:GDPNOW,True,2026-07-22T05:14:38.554171+00:00
+observation_date,release_timestamp,effective_trade_date,metric,value,score,source,is_proxy,fetched_at,vintage_method
+2026-04-01,2026-07-22T05:14:38.554171+00:00,2026-07-22,gdpnow_real_gdp_saar,1.6817,53.6276,FRED:GDPNOW,True,2026-07-22T05:14:38.554171+00:00,
+2026-04-01,2026-07-28T08:02:38.778964+00:00,2026-07-28,gdpnow_real_gdp_saar,1.5811,51.6214,FRED:GDPNOW,True,2026-07-28T08:02:38.778964+00:00,FIRST_OBSERVED_VALUE_CHANGE
