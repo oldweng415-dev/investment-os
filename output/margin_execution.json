@@ -1,15 +1,15 @@
 {
-  "signal_date": "2026-07-27",
-  "effective_date": "2026-07-28",
-  "raw_target_margin_pct": 4.1,
+  "signal_date": "2026-07-28",
+  "effective_date": "2026-07-29",
+  "raw_target_margin_pct": 3.9,
   "confirmed_target_margin_pct": 1.0,
   "model_actual_margin_pct": 1.0,
   "action": "WAIT_INCREASE_CONFIRMATION",
   "reasons": [
-    "Increase_Confirmation_1_of_3"
+    "Increase_Confirmation_2_of_3"
   ],
   "hard_exit": false,
-  "increase_streak": 1,
+  "increase_streak": 2,
   "decrease_streak": 0,
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 388272.42,
