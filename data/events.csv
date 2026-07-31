@@ -5,8 +5,6 @@ event_date,asset,event_type,description,source,is_proxy
 2026-07-29,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
 2026-07-29,MARKET,macro_release,Metropolitan Area Employment and Unemployment (Monthly),BLS_ICS,False
 2026-07-29,MARKET,macro_release,Quarterly Data Series on Business Employment Dynamics,BLS_ICS,False
-2026-07-29,META,earnings,META estimated earnings date,YFINANCE_EARNINGS_PROXY,True
-2026-07-29,MSFT,earnings,MSFT estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-07-30,AMZN,earnings,AMZN estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-07-30,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
 2026-07-30,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
@@ -58,6 +56,8 @@ event_date,asset,event_type,description,source,is_proxy
 2026-10-28,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
 2026-10-28,MARKET,macro_release,Quarterly Data Series on Business Employment Dynamics,BLS_ICS,False
 2026-10-28,MARKET,macro_release,Metropolitan Area Employment and Unemployment (Monthly),BLS_ICS,False
+2026-10-28,META,earnings,META estimated earnings date,YFINANCE_EARNINGS_PROXY,True
+2026-10-28,MSFT,earnings,MSFT estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-10-29,MARKET,macro_release,Consumer Expenditures,BLS_ICS,False
 2026-10-29,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
 2026-10-29,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
