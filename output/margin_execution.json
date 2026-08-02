@@ -4,13 +4,11 @@
   "raw_target_margin_pct": 4.3,
   "confirmed_target_margin_pct": 2.0,
   "model_actual_margin_pct": 2.0,
-  "action": "WAIT_INCREASE_CONFIRMATION",
+  "action": "NO_NEW_SIGNAL",
   "reasons": [
-    "Increase_Confirmation_1_of_3"
+    "Signal_Date_Already_Processed"
   ],
   "hard_exit": false,
-  "increase_streak": 1,
-  "decrease_streak": 0,
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 776544.84,
   "note": "model_actual_margin_pct is a persistent model target, not broker-confirmed debt."
