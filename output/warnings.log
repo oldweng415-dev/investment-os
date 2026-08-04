@@ -1,2 +1,2 @@
-2026-08-03 11:00:35,146 | INFO | Starting Investment OS production engine; mode=live_public
-2026-08-03 11:01:56,553 | INFO | Completed: Buy=66.82 Risk=33.94 Margin=57.75 Target=4.3% CC=STOP_NEW_CC
+2026-08-04 08:05:29,663 | INFO | Starting Investment OS production engine; mode=live_public
+2026-08-04 08:05:40,547 | INFO | Completed: Buy=66.51 Risk=34.02 Margin=57.33 Target=4.1% CC=STOP_NEW_CC

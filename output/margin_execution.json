@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-07-31",
   "effective_date": "2026-08-03",
-  "raw_target_margin_pct": 4.3,
+  "raw_target_margin_pct": 4.1,
   "confirmed_target_margin_pct": 2.0,
   "model_actual_margin_pct": 2.0,
   "action": "NO_NEW_SIGNAL",
