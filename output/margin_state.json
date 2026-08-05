@@ -1,14 +1,14 @@
 {
   "model_actual_margin_pct": 2.0,
   "confirmed_target_margin_pct": 2.0,
-  "increase_streak": 1,
+  "increase_streak": 2,
   "decrease_streak": 0,
   "last_trade_date": "2026-07-30",
   "last_increase_date": "2026-07-30",
   "last_increase_iso_week": "2026-W31",
-  "last_processed_signal_date": "2026-07-31",
+  "last_processed_signal_date": "2026-08-04",
   "last_action": "WAIT_INCREASE_CONFIRMATION",
   "last_reason": [
-    "Increase_Confirmation_1_of_3"
+    "Increase_Confirmation_2_of_3"
   ]
 }
