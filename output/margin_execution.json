@@ -1,13 +1,12 @@
 {
-  "signal_date": "2026-08-06",
-  "effective_date": "2026-08-07",
-  "raw_target_margin_pct": 4.6,
+  "signal_date": "2026-08-07",
+  "effective_date": "2026-08-10",
+  "raw_target_margin_pct": 4.2,
   "confirmed_target_margin_pct": 3.0,
   "model_actual_margin_pct": 3.0,
-  "action": "INCREASE_MARGIN",
+  "action": "HOLD",
   "reasons": [
-    "Increase_Confirmation_4_of_3",
-    "Increase_Executed"
+    "No_Trigger"
   ],
   "hard_exit": false,
   "increase_streak": 0,
