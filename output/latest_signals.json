@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-08-07",
   "decision_date": "2026-08-10",
-  "generated_at": "2026-08-08T23:51:25.484643+00:00",
+  "generated_at": "2026-08-10T00:02:36.113114+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -30,9 +30,9 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 20.5269,
+    "iv30_pct": 21.0236,
     "rv20_pct": 26.0946,
-    "iv_minus_rv_pct_points": -5.5677,
+    "iv_minus_rv_pct_points": -5.071,
     "strike_recommendation_available": false
   },
   "action": "僅限核心 ETF 小量分批；目標融資 4.2%，現金 15%–25%。",
@@ -276,9 +276,9 @@
     "positioning.vvix_percentile": 31.6865,
     "positioning.equity_put_call": 0.54,
     "positioning.cftc_positioning": -50.1119,
-    "positioning.iv30": 20.5269,
+    "positioning.iv30": 21.0236,
     "positioning.rv20": 26.0946,
-    "positioning.iv_rv_spread": -5.5677
+    "positioning.iv_rv_spread": -5.071
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
@@ -309,15 +309,15 @@
     "decision_interval_business_days": 10,
     "last_model_decision_date": "2026-07-27",
     "expert": "pullback",
-    "expected_relative_alpha_60d_pct": -1.7595240107148726,
-    "stable_expected_relative_alpha_60d_pct": -0.8900280565946073,
-    "static_baseline_60d_pct": 4.53756365667771,
-    "expected_net_return_60d_pct": 2.7780396459628376,
+    "expected_relative_alpha_60d_pct": -1.7595365280326847,
+    "stable_expected_relative_alpha_60d_pct": -0.8900459339860242,
+    "static_baseline_60d_pct": 4.537563678836854,
+    "expected_net_return_60d_pct": 2.778027150804169,
     "forecast_rank": 0.2718888888888889,
     "stable_forecast_rank": 0.3383333333333334,
     "rank_pass_count": 0,
     "rank_stability_lookback_days": 5,
-    "diagnostic_probability": 0.4545282243081441,
+    "diagnostic_probability": 0.4545279047282988,
     "alpha_demand_margin_pct": 0.0,
     "risk_cap_margin_pct": 6.0,
     "alpha_reasons": [
