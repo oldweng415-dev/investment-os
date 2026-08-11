@@ -6,14 +6,14 @@
   "last_trade_date": "2026-07-23",
   "last_increase_date": "2026-07-24",
   "last_increase_iso_week": "2026-W30",
-  "last_processed_signal_date": "2026-08-07",
+  "last_processed_signal_date": "2026-08-10",
   "entry_date": null,
   "entry_price": null,
   "peak_price": null,
-  "last_model_decision_date": "2026-07-27",
+  "last_model_decision_date": "2026-08-10",
   "scheduled_alpha_demand_margin_pct": 0.0,
-  "scheduled_forecast_rank": 0.2976940743560462,
-  "scheduled_expected_relative_alpha_pct": -1.4878647122751683,
+  "scheduled_forecast_rank": 0.34019444444444447,
+  "scheduled_expected_relative_alpha_pct": -1.0156238237992954,
   "last_action": "HOLD",
   "last_reason": [
     "Inside_No_Trade_Band"
