@@ -1,25 +1,25 @@
 {
-  "signal_date": "2026-08-11",
-  "decision_date": "2026-08-12",
-  "generated_at": "2026-08-12T04:31:45.214840+00:00",
+  "signal_date": "2026-08-12",
+  "decision_date": "2026-08-13",
+  "generated_at": "2026-08-13T05:19:13.474621+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
-    "Buy_Score": 68.95,
-    "Risk_Score": 29.73,
-    "Margin_Score": 58.69,
-    "Carry_Score": 22.22
+    "Buy_Score": 68.29,
+    "Risk_Score": 31.61,
+    "Margin_Score": 57.2,
+    "Carry_Score": 22.67
   },
   "modules": {
-    "Market_Regime": 82.26,
+    "Market_Regime": 83.06,
     "AI_Cycle": 92.18,
-    "Valuation": 50.38,
+    "Valuation": 51.33,
     "Macro": 69.61,
-    "Liquidity": 55.88,
-    "Positioning": 59.64
+    "Liquidity": 47.67,
+    "Positioning": 58.52
   },
   "allocation": {
-    "Target_Margin_Pct": 4.6,
+    "Target_Margin_Pct": 4.1,
     "Target_Cash_Min_Pct": 15,
     "Target_Cash_Max_Pct": 25
   },
@@ -30,12 +30,12 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 20.4101,
-    "rv20_pct": 24.8718,
-    "iv_minus_rv_pct_points": -4.4617,
+    "iv30_pct": 19.6311,
+    "rv20_pct": 24.9846,
+    "iv_minus_rv_pct_points": -5.3535,
     "strike_recommendation_available": false
   },
-  "action": "僅限核心 ETF 小量分批；目標融資 4.6%，現金 15%–25%。",
+  "action": "僅限核心 ETF 小量分批；目標融資 4.1%，現金 15%–25%。",
   "effective_module_weights": {
     "buy": {
       "market_regime": 0.25,
@@ -64,7 +64,7 @@
   },
   "module_data_quality": {
     "market_regime": {
-      "score": 82.26,
+      "score": 83.06,
       "available": true,
       "coverage": 1.0,
       "is_proxy": true,
@@ -77,7 +77,7 @@
       },
       "missing_inputs": [],
       "stale_inputs": [],
-      "last_updated": "2026-08-11"
+      "last_updated": "2026-08-12"
     },
     "ai_cycle": {
       "score": 92.18,
@@ -92,10 +92,10 @@
       },
       "missing_inputs": [],
       "stale_inputs": [],
-      "last_updated": "2026-08-11"
+      "last_updated": "2026-08-12"
     },
     "valuation": {
-      "score": 50.38,
+      "score": 51.33,
       "available": true,
       "coverage": 1.0,
       "is_proxy": true,
@@ -109,7 +109,7 @@
         "forward_estimates_unavailable"
       ],
       "stale_inputs": [],
-      "last_updated": "2026-08-11"
+      "last_updated": "2026-08-12"
     },
     "macro": {
       "score": 69.61,
@@ -125,10 +125,10 @@
       },
       "missing_inputs": [],
       "stale_inputs": [],
-      "last_updated": "2026-08-11"
+      "last_updated": "2026-08-12"
     },
     "liquidity": {
-      "score": 55.88,
+      "score": 47.67,
       "available": true,
       "coverage": 1.0,
       "is_proxy": true,
@@ -141,10 +141,10 @@
       },
       "missing_inputs": [],
       "stale_inputs": [],
-      "last_updated": "2026-08-11"
+      "last_updated": "2026-08-12"
     },
     "positioning": {
-      "score": 59.64,
+      "score": 58.52,
       "available": true,
       "coverage": 1.0,
       "is_proxy": true,
@@ -158,7 +158,7 @@
       },
       "missing_inputs": [],
       "stale_inputs": [],
-      "last_updated": "2026-08-11"
+      "last_updated": "2026-08-12"
     }
   },
   "data_quality": {
@@ -215,17 +215,9 @@
   "modifiers": {
     "panic_bonus": 0.0,
     "euphoria_penalty": 0.0,
-    "expected_return_spread_pct_points": -2.5053
+    "expected_return_spread_pct_points": -2.4546
   },
   "upcoming_events": [
-    {
-      "event_date": "2026-08-12T00:00:00",
-      "asset": "MARKET",
-      "event_type": "macro_release",
-      "description": "Consumer Price Index",
-      "source": "BLS_ICS",
-      "is_proxy": false
-    },
     {
       "event_date": "2026-08-13T00:00:00",
       "asset": "MARKET",
@@ -233,23 +225,47 @@
       "description": "Producer Price Index",
       "source": "BLS_ICS",
       "is_proxy": false
+    },
+    {
+      "event_date": "2026-08-26T00:00:00",
+      "asset": "MARKET",
+      "event_type": "macro_release",
+      "description": "Gross Domestic Product",
+      "source": "BEA_RELEASE_SCHEDULE",
+      "is_proxy": false
+    },
+    {
+      "event_date": "2026-08-26T00:00:00",
+      "asset": "MARKET",
+      "event_type": "macro_release",
+      "description": "Personal Income and Outlays",
+      "source": "BEA_RELEASE_SCHEDULE",
+      "is_proxy": false
+    },
+    {
+      "event_date": "2026-08-26T00:00:00",
+      "asset": "NVDA",
+      "event_type": "earnings",
+      "description": "NVDA estimated earnings date",
+      "source": "YFINANCE_EARNINGS_PROXY",
+      "is_proxy": true
     }
   ],
   "raw_indicators": {
-    "market_regime.spy_trend_distance": 0.0942,
-    "market_regime.qqq_trend_distance": 0.1064,
-    "market_regime.soxx_trend_distance": 0.3004,
+    "market_regime.spy_trend_distance": 0.095,
+    "market_regime.qqq_trend_distance": 0.109,
+    "market_regime.soxx_trend_distance": 0.3085,
     "market_regime.breadth_score": 100.0,
-    "market_regime.hy_oas": 2.7,
-    "market_regime.hy_oas_percentile": 10.3333,
+    "market_regime.hy_oas": 2.72,
+    "market_regime.hy_oas_percentile": 10.1864,
     "ai_cycle.nvidia_revenue_yoy_proxy": 85.2276,
     "ai_cycle.hyperscaler_capex_yoy": 76.7574,
     "ai_cycle.tsmc_hpc_growth": 47.0569,
     "ai_cycle.micron_dc_hbm_score": 653.2026,
-    "valuation.trailing_pe": 25.4798,
-    "valuation.fcf_yield": 1.4223,
-    "valuation.earnings_yield": 3.9247,
-    "valuation.erp": 1.4947,
+    "valuation.trailing_pe": 25.1544,
+    "valuation.fcf_yield": 1.3959,
+    "valuation.earnings_yield": 3.9754,
+    "valuation.erp": 1.5454,
     "macro.core_pce_3m_annualized": 2.8851,
     "macro.sahm_style_gap": 0.0,
     "macro.claims_4w_26w_ratio": 0.9419,
@@ -257,28 +273,28 @@
     "macro.gdpnow_score": 96.9726,
     "liquidity.walcl_bn": 6748.567,
     "liquidity.tga_bn": 907.324,
-    "liquidity.rrp_bn": 0.975,
-    "liquidity.net_fed_liquidity_bn": 5840.268,
-    "liquidity.nfl_13w_change_bn": 123.88,
-    "liquidity.nfl_26w_change_bn": 186.157,
-    "liquidity.nfl_13w_percentile": 73.2341,
+    "liquidity.rrp_bn": 1.25,
+    "liquidity.net_fed_liquidity_bn": 5839.993,
+    "liquidity.nfl_13w_change_bn": 9.022,
+    "liquidity.nfl_26w_change_bn": 177.252,
+    "liquidity.nfl_13w_percentile": 53.3532,
     "liquidity.nfl_formula_check_bn": 0.0,
     "liquidity.reserve_balances_bn": 2993.349,
     "liquidity.real_m2_yoy": 2.2303,
-    "positioning.vix": 15.28,
-    "positioning.vix_percentile": 36.2897,
-    "positioning.vix3m": 18.91,
-    "positioning.vix_term_ratio": 0.808,
+    "positioning.vix": 14.55,
+    "positioning.vix_percentile": 34.504,
+    "positioning.vix3m": 18.53,
+    "positioning.vix_term_ratio": 0.7852,
     "positioning.vix_backwardation": 0.0,
-    "positioning.skew": 135.59,
-    "positioning.skew_percentile": 48.5913,
-    "positioning.vvix": 90.9,
-    "positioning.vvix_percentile": 32.2421,
-    "positioning.equity_put_call": 0.63,
+    "positioning.skew": 136.54,
+    "positioning.skew_percentile": 49.2262,
+    "positioning.vvix": 88.5,
+    "positioning.vvix_percentile": 29.2659,
+    "positioning.equity_put_call": 0.61,
     "positioning.cftc_positioning": -50.1119,
-    "positioning.iv30": 20.4101,
-    "positioning.rv20": 24.8718,
-    "positioning.iv_rv_spread": -4.4617
+    "positioning.iv30": 19.6311,
+    "positioning.rv20": 24.9846,
+    "positioning.iv_rv_spread": -5.3535
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
@@ -287,17 +303,17 @@
     "Options IV/RV data is a QQQ yfinance proxy. No verified delta is available, so no exact covered-call strike is produced."
   ],
   "margin_execution": {
-    "signal_date": "2026-08-11",
-    "effective_date": "2026-08-12",
-    "raw_target_margin_pct": 4.6,
+    "signal_date": "2026-08-12",
+    "effective_date": "2026-08-13",
+    "raw_target_margin_pct": 4.1,
     "confirmed_target_margin_pct": 3.0,
     "model_actual_margin_pct": 3.0,
-    "action": "WAIT_INCREASE_CONFIRMATION",
+    "action": "HOLD",
     "reasons": [
-      "Increase_Confirmation_1_of_3"
+      "No_Trigger"
     ],
     "hard_exit": false,
-    "increase_streak": 1,
+    "increase_streak": 0,
     "decrease_streak": 0,
     "reference_equity": 38827242.0,
     "recommended_loan_amount": 1164817.26,
@@ -305,21 +321,21 @@
   },
   "return_alpha": {
     "model_version": "v3_rank_relative_alpha_nonoverlap",
-    "signal_date": "2026-08-11",
-    "effective_date": "2026-08-12",
+    "signal_date": "2026-08-12",
+    "effective_date": "2026-08-13",
     "decision_due": false,
     "decision_interval_business_days": 10,
     "last_model_decision_date": "2026-08-10",
     "expert": "pullback",
-    "expected_relative_alpha_60d_pct": -1.6191824132761872,
-    "stable_expected_relative_alpha_60d_pct": -1.238319068687093,
-    "static_baseline_60d_pct": 4.521075978618248,
-    "expected_net_return_60d_pct": 2.901893565342061,
-    "forecast_rank": 0.2546388888888889,
-    "stable_forecast_rank": 0.27613888888888893,
+    "expected_relative_alpha_60d_pct": -4.586953969781024,
+    "stable_expected_relative_alpha_60d_pct": -1.9427491495417109,
+    "static_baseline_60d_pct": 4.506344876696677,
+    "expected_net_return_60d_pct": -0.08060909308434602,
+    "forecast_rank": 0.18275000000000002,
+    "stable_forecast_rank": 0.2713055555555556,
     "rank_pass_count": 0,
     "rank_stability_lookback_days": 5,
-    "diagnostic_probability": 0.41266439565917057,
+    "diagnostic_probability": 0.24522782593168369,
     "alpha_demand_margin_pct": 0.0,
     "risk_cap_margin_pct": 6.0,
     "alpha_reasons": [
