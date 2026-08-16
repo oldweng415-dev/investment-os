@@ -1,12 +1,12 @@
 {
   "signal_date": "2026-08-14",
   "decision_date": "2026-08-17",
-  "generated_at": "2026-08-15T23:01:49.399596+00:00",
+  "generated_at": "2026-08-16T22:59:51.716069+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
-    "Buy_Score": 66.91,
-    "Risk_Score": 34.26,
+    "Buy_Score": 66.92,
+    "Risk_Score": 34.25,
     "Margin_Score": 54.83,
     "Carry_Score": 22.91
   },
@@ -16,7 +16,7 @@
     "Valuation": 51.31,
     "Macro": 68.53,
     "Liquidity": 36.76,
-    "Positioning": 54.9
+    "Positioning": 54.94
   },
   "allocation": {
     "Target_Margin_Pct": 3.3,
@@ -30,9 +30,9 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 18.2992,
+    "iv30_pct": 19.1857,
     "rv20_pct": 23.642,
-    "iv_minus_rv_pct_points": -5.3428,
+    "iv_minus_rv_pct_points": -4.4563,
     "strike_recommendation_available": false
   },
   "action": "僅限核心 ETF 小量分批；目標融資 3.3%，現金 15%–25%。",
@@ -144,7 +144,7 @@
       "last_updated": "2026-08-14"
     },
     "positioning": {
-      "score": 54.9,
+      "score": 54.94,
       "available": true,
       "coverage": 1.0,
       "is_proxy": true,
@@ -281,12 +281,12 @@
     "positioning.skew": 138.36,
     "positioning.skew_percentile": 50.4167,
     "positioning.vvix": 87.48,
-    "positioning.vvix_percentile": 25.5357,
+    "positioning.vvix_percentile": 25.8135,
     "positioning.equity_put_call": 0.52,
     "positioning.cftc_positioning": -34.6106,
-    "positioning.iv30": 18.2992,
+    "positioning.iv30": 19.1857,
     "positioning.rv20": 23.642,
-    "positioning.iv_rv_spread": -5.3428
+    "positioning.iv_rv_spread": -4.4563
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
@@ -317,15 +317,15 @@
     "decision_interval_business_days": 10,
     "last_model_decision_date": "2026-08-10",
     "expert": "trend",
-    "expected_relative_alpha_60d_pct": -7.116593395772861,
-    "stable_expected_relative_alpha_60d_pct": -4.332945347105182,
-    "static_baseline_60d_pct": 4.489908849403082,
-    "expected_net_return_60d_pct": -2.6266845463697788,
+    "expected_relative_alpha_60d_pct": -7.117964527832211,
+    "stable_expected_relative_alpha_60d_pct": -4.333215321398008,
+    "static_baseline_60d_pct": 4.489908810283594,
+    "expected_net_return_60d_pct": -2.6280557175486163,
     "forecast_rank": 0.20822096456692915,
     "stable_forecast_rank": 0.2510959645669292,
     "rank_pass_count": 0,
     "rank_stability_lookback_days": 5,
-    "diagnostic_probability": 0.1909782950304622,
+    "diagnostic_probability": 0.19095996092062872,
     "alpha_demand_margin_pct": 0.0,
     "risk_cap_margin_pct": 3.0,
     "alpha_reasons": [
