@@ -1,5 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-08-07,MARKET,macro_release,Employment Situation,BLS_ICS,False
 2026-08-12,MARKET,macro_release,Consumer Price Index,BLS_ICS,False
 2026-08-12,MARKET,macro_release,Real Earnings,BLS_ICS,False
 2026-08-13,MARKET,macro_release,Producer Price Index,BLS_ICS,False
