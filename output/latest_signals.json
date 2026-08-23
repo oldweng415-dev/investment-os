@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-08-21",
   "decision_date": "2026-08-24",
-  "generated_at": "2026-08-22T22:48:08.939474+00:00",
+  "generated_at": "2026-08-23T22:48:07.589766+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -30,9 +30,9 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 19.3718,
+    "iv30_pct": 19.9059,
     "rv20_pct": 22.3221,
-    "iv_minus_rv_pct_points": -2.9502,
+    "iv_minus_rv_pct_points": -2.4162,
     "strike_recommendation_available": false
   },
   "action": "僅限核心 ETF 小量分批；目標融資 2.7%，現金 15%–25%。",
@@ -292,9 +292,9 @@
     "positioning.vvix_percentile": 23.8294,
     "positioning.equity_put_call": 0.51,
     "positioning.cftc_positioning": -24.3738,
-    "positioning.iv30": 19.3718,
+    "positioning.iv30": 19.9059,
     "positioning.rv20": 22.3221,
-    "positioning.iv_rv_spread": -2.9502
+    "positioning.iv_rv_spread": -2.4162
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
@@ -325,15 +325,15 @@
     "decision_interval_business_days": 10,
     "last_model_decision_date": "2026-08-10",
     "expert": "pullback",
-    "expected_relative_alpha_60d_pct": -2.259945538811274,
-    "stable_expected_relative_alpha_60d_pct": -4.183897925870075,
-    "static_baseline_60d_pct": 4.47887463394316,
-    "expected_net_return_60d_pct": 2.2189290951318865,
+    "expected_relative_alpha_60d_pct": -2.2599404449494305,
+    "stable_expected_relative_alpha_60d_pct": -4.183897096883037,
+    "static_baseline_60d_pct": 4.478874521978282,
+    "expected_net_return_60d_pct": 2.2189340770288517,
     "forecast_rank": 0.25119444444444444,
     "stable_forecast_rank": 0.19663888888888892,
     "rank_pass_count": 0,
     "rank_stability_lookback_days": 5,
-    "diagnostic_probability": 0.38128377252205425,
+    "diagnostic_probability": 0.38128396542707743,
     "alpha_demand_margin_pct": 0.0,
     "risk_cap_margin_pct": 3.0,
     "alpha_reasons": [
