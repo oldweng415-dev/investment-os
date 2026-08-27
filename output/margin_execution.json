@@ -1,17 +1,18 @@
 {
-  "signal_date": "2026-08-25",
-  "effective_date": "2026-08-26",
-  "raw_target_margin_pct": 2.7,
-  "confirmed_target_margin_pct": 3.0,
-  "model_actual_margin_pct": 3.0,
-  "action": "HOLD",
+  "signal_date": "2026-08-26",
+  "effective_date": "2026-08-27",
+  "raw_target_margin_pct": 0.0,
+  "confirmed_target_margin_pct": 0.0,
+  "model_actual_margin_pct": 0.0,
+  "action": "EXIT_ALL",
   "reasons": [
-    "Inside_No_Trade_Band"
+    "Liquidity_Hard_Exit",
+    "Margin_Score_Hard_Exit"
   ],
-  "hard_exit": false,
+  "hard_exit": true,
   "increase_streak": 0,
   "decrease_streak": 0,
   "reference_equity": 38827242.0,
-  "recommended_loan_amount": 1164817.26,
+  "recommended_loan_amount": 0.0,
   "note": "model_actual_margin_pct is a persistent model target, not broker-confirmed debt."
 }

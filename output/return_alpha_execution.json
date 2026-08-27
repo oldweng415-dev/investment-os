@@ -1,34 +1,35 @@
 {
   "model_version": "v3_rank_relative_alpha_nonoverlap",
-  "signal_date": "2026-08-25",
-  "effective_date": "2026-08-26",
+  "signal_date": "2026-08-26",
+  "effective_date": "2026-08-27",
   "decision_due": false,
   "decision_interval_business_days": 10,
   "last_model_decision_date": "2026-08-24",
   "expert": "pullback",
-  "expected_relative_alpha_60d_pct": -1.7201728502341096,
-  "stable_expected_relative_alpha_60d_pct": -2.4267839626348384,
-  "static_baseline_60d_pct": 4.482682016760442,
-  "expected_net_return_60d_pct": 2.7625091665263333,
-  "forecast_rank": 0.2669166666666667,
+  "expected_relative_alpha_60d_pct": -1.7905715290472115,
+  "stable_expected_relative_alpha_60d_pct": -1.9464808663468744,
+  "static_baseline_60d_pct": 4.490298177487827,
+  "expected_net_return_60d_pct": 2.699726648440616,
+  "forecast_rank": 0.24275000000000002,
   "stable_forecast_rank": 0.2446388888888889,
   "rank_pass_count": 0,
   "rank_stability_lookback_days": 5,
-  "diagnostic_probability": 0.3951690113832018,
+  "diagnostic_probability": 0.4003575496347964,
   "alpha_demand_margin_pct": 0.0,
-  "risk_cap_margin_pct": 3.0,
+  "risk_cap_margin_pct": 0.0,
   "alpha_reasons": [
     "Carry_Previous_Scheduled_Demand"
   ],
   "risk_reasons": [
-    "Liquidity_Below_45_Penalty"
+    "Hard_Risk_Cap_Zero"
   ],
   "raw_target_margin_pct": 0.0,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
-  "action": "HOLD",
+  "action": "HOLD_ZERO",
   "reasons": [
-    "Inside_No_Trade_Band"
+    "Liquidity_Hard_Exit",
+    "Margin_Score_Hard_Exit"
   ],
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 0.0,
