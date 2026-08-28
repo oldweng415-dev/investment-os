@@ -1,10 +1,10 @@
 {
-  "signal_date": "2026-08-26",
-  "effective_date": "2026-08-27",
+  "signal_date": "2026-08-27",
+  "effective_date": "2026-08-28",
   "raw_target_margin_pct": 0.0,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
-  "action": "EXIT_ALL",
+  "action": "HOLD_ZERO",
   "reasons": [
     "Liquidity_Hard_Exit",
     "Margin_Score_Hard_Exit"
