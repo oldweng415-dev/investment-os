@@ -5,7 +5,6 @@ event_date,asset,event_type,description,source,is_proxy
 2026-08-26,MARKET,macro_release,Access to and Use of Leave,BLS_ICS,False
 2026-08-26,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
 2026-08-26,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
-2026-08-26,NVDA,earnings,NVDA estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-08-27,MARKET,macro_release,Worker Displacement,BLS_ICS,False
 2026-08-27,MARKET,macro_release,Employment Projections and Occupational Outlook Handbook,BLS_ICS,False
 2026-08-28,MARKET,macro_release,County Employment and Wages,BLS_ICS,False
@@ -54,6 +53,7 @@ event_date,asset,event_type,description,source,is_proxy
 2026-11-10,MARKET,macro_release,Consumer Price Index,BLS_ICS,False
 2026-11-13,MARKET,macro_release,Producer Price Index,BLS_ICS,False
 2026-11-17,MARKET,macro_release,U.S. Import and Export Price Indexes,BLS_ICS,False
+2026-11-17,NVDA,earnings,NVDA estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-11-18,MARKET,macro_release,Employer-Reported Workplace Injuries and Illnesses (Annual),BLS_ICS,False
 2026-11-20,MARKET,macro_release,State Employment and Unemployment (Monthly),BLS_ICS,False
 2026-11-25,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
