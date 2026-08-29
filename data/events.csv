@@ -1,5 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-08-18,MARKET,macro_release,U.S. Import and Export Price Indexes,BLS_ICS,False
 2026-08-20,MARKET,macro_release,Summer Youth Labor Force,BLS_ICS,False
 2026-08-21,MARKET,macro_release,State Employment and Unemployment (Monthly),BLS_ICS,False
 2026-08-26,MARKET,macro_release,Access to and Use of Leave,BLS_ICS,False
