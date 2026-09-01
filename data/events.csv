@@ -1,5 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-08-21,MARKET,macro_release,State Employment and Unemployment (Monthly),BLS_ICS,False
 2026-08-26,MARKET,macro_release,Access to and Use of Leave,BLS_ICS,False
 2026-08-26,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
 2026-08-26,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
