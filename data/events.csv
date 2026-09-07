@@ -1,6 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-08-27,MARKET,macro_release,Worker Displacement,BLS_ICS,False
-2026-08-27,MARKET,macro_release,Employment Projections and Occupational Outlook Handbook,BLS_ICS,False
 2026-08-28,MARKET,macro_release,County Employment and Wages,BLS_ICS,False
 2026-08-28,MARKET,macro_release,Current Employment Statistics Preliminary Benchmark (State and Area),BLS_ICS,False
 2026-08-28,MARKET,macro_release,Current Employment Statistics Preliminary Benchmark (National),BLS_ICS,False
