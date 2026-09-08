@@ -1,7 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-08-28,MARKET,macro_release,County Employment and Wages,BLS_ICS,False
-2026-08-28,MARKET,macro_release,Current Employment Statistics Preliminary Benchmark (State and Area),BLS_ICS,False
-2026-08-28,MARKET,macro_release,Current Employment Statistics Preliminary Benchmark (National),BLS_ICS,False
 2026-09-01,MARKET,macro_release,Job Openings and Labor Turnover Survey,BLS_ICS,False
 2026-09-02,MARKET,macro_release,Metropolitan Area Employment and Unemployment (Monthly),BLS_ICS,False
 2026-09-03,MARKET,macro_release,Productivity and Costs,BLS_ICS,False
