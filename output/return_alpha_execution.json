@@ -6,15 +6,15 @@
   "decision_interval_business_days": 10,
   "last_model_decision_date": "2026-09-08",
   "expert": "pullback",
-  "expected_relative_alpha_60d_pct": 1.554729325100928,
-  "stable_expected_relative_alpha_60d_pct": 1.3289860176433914,
-  "static_baseline_60d_pct": 4.561615393500415,
-  "expected_net_return_60d_pct": 6.116344718601343,
+  "expected_relative_alpha_60d_pct": 1.5547065150730972,
+  "stable_expected_relative_alpha_60d_pct": 1.3289632643609366,
+  "static_baseline_60d_pct": 4.561615352750021,
+  "expected_net_return_60d_pct": 6.116321867823118,
   "forecast_rank": 0.45271990171990173,
   "stable_forecast_rank": 0.41102620802620804,
   "rank_pass_count": 0,
   "rank_stability_lookback_days": 5,
-  "diagnostic_probability": 0.654195442730334,
+  "diagnostic_probability": 0.6541948293831793,
   "alpha_demand_margin_pct": 0.0,
   "risk_cap_margin_pct": 5.0,
   "alpha_reasons": [
@@ -26,9 +26,9 @@
   "raw_target_margin_pct": 0.0,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
-  "action": "HOLD",
+  "action": "NO_NEW_SIGNAL",
   "reasons": [
-    "Inside_No_Trade_Band"
+    "Signal_Date_Already_Processed"
   ],
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 0.0,
