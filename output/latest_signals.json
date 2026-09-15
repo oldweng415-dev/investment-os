@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-09-11",
   "decision_date": "2026-09-14",
-  "generated_at": "2026-09-14T00:20:52.901173+00:00",
+  "generated_at": "2026-09-15T00:47:09.267112+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -11,7 +11,7 @@
     "Carry_Score": 25.65
   },
   "modules": {
-    "Market_Regime": 69.96,
+    "Market_Regime": 69.95,
     "AI_Cycle": 93.74,
     "Valuation": 59.35,
     "Macro": 60.12,
@@ -64,7 +64,7 @@
   },
   "module_data_quality": {
     "market_regime": {
-      "score": 69.96,
+      "score": 69.95,
       "available": true,
       "coverage": 1.0,
       "is_proxy": true,
@@ -233,7 +233,7 @@
     "market_regime.soxx_trend_distance": 0.2035,
     "market_regime.breadth_score": 100.0,
     "market_regime.hy_oas": 2.7,
-    "market_regime.hy_oas_percentile": 6.4495,
+    "market_regime.hy_oas_percentile": 6.4753,
     "ai_cycle.nvidia_revenue_yoy_proxy": 105.8511,
     "ai_cycle.hyperscaler_capex_yoy": 76.7574,
     "ai_cycle.tsmc_hpc_growth": 47.0569,
@@ -301,15 +301,15 @@
     "decision_interval_business_days": 10,
     "last_model_decision_date": "2026-09-08",
     "expert": "pullback",
-    "expected_relative_alpha_60d_pct": 1.5547065150730972,
-    "stable_expected_relative_alpha_60d_pct": 1.3289632643609366,
-    "static_baseline_60d_pct": 4.561615352750021,
-    "expected_net_return_60d_pct": 6.116321867823118,
-    "forecast_rank": 0.45271990171990173,
-    "stable_forecast_rank": 0.41102620802620804,
+    "expected_relative_alpha_60d_pct": 1.3092820503015394,
+    "stable_expected_relative_alpha_60d_pct": 1.089524144864194,
+    "static_baseline_60d_pct": 4.561615398565866,
+    "expected_net_return_60d_pct": 5.870897448867406,
+    "forecast_rank": 0.43805323505323507,
+    "stable_forecast_rank": 0.40369287469287474,
     "rank_pass_count": 0,
     "rank_stability_lookback_days": 5,
-    "diagnostic_probability": 0.6541948293831793,
+    "diagnostic_probability": 0.6255056462512352,
     "alpha_demand_margin_pct": 0.0,
     "risk_cap_margin_pct": 5.0,
     "alpha_reasons": [
