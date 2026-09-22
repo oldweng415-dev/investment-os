@@ -1,6 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-09-11,MARKET,macro_release,Real Earnings,BLS_ICS,False
-2026-09-11,MARKET,macro_release,Consumer Price Index,BLS_ICS,False
 2026-09-16,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
 2026-09-16,MARKET,macro_release,U.S. Import and Export Price Indexes,BLS_ICS,False
 2026-09-18,MARKET,macro_release,State Employment and Unemployment (Monthly),BLS_ICS,False
@@ -64,3 +62,4 @@ event_date,asset,event_type,description,source,is_proxy
 2027-06-09,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
 2027-07-28,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
 2027-09-15,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
+2027-10-27,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
