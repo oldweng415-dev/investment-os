@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-09-25",
   "decision_date": "2026-09-28",
-  "generated_at": "2026-09-27T00:46:17.103852+00:00",
+  "generated_at": "2026-09-28T01:02:26.677576+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -30,9 +30,9 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 18.4578,
+    "iv30_pct": 19.7434,
     "rv20_pct": 15.6616,
-    "iv_minus_rv_pct_points": 2.7962,
+    "iv_minus_rv_pct_points": 4.0817,
     "strike_recommendation_available": false
   },
   "action": "僅限核心 ETF 小量分批；目標融資 3.4%，現金 15%–25%。",
@@ -284,9 +284,9 @@
     "positioning.vvix_percentile": 22.8373,
     "positioning.equity_put_call": 0.52,
     "positioning.cftc_positioning": -20.4488,
-    "positioning.iv30": 18.4578,
+    "positioning.iv30": 19.7434,
     "positioning.rv20": 15.6616,
-    "positioning.iv_rv_spread": 2.7962
+    "positioning.iv_rv_spread": 4.0817
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
@@ -300,13 +300,11 @@
     "raw_target_margin_pct": 3.4,
     "confirmed_target_margin_pct": 3.0,
     "model_actual_margin_pct": 3.0,
-    "action": "HOLD",
+    "action": "NO_NEW_SIGNAL",
     "reasons": [
-      "Inside_No_Trade_Band"
+      "Signal_Date_Already_Processed"
     ],
     "hard_exit": false,
-    "increase_streak": 0,
-    "decrease_streak": 0,
     "reference_equity": 38827242.0,
     "recommended_loan_amount": 1164817.26,
     "note": "model_actual_margin_pct is a persistent model target, not broker-confirmed debt."
@@ -319,15 +317,15 @@
     "decision_interval_business_days": 10,
     "last_model_decision_date": "2026-09-22",
     "expert": "trend",
-    "expected_relative_alpha_60d_pct": -8.06809813090478,
-    "stable_expected_relative_alpha_60d_pct": -7.153553805547477,
-    "static_baseline_60d_pct": 4.692573028069695,
-    "expected_net_return_60d_pct": -3.375525102835084,
+    "expected_relative_alpha_60d_pct": -8.068103480083506,
+    "stable_expected_relative_alpha_60d_pct": -7.153566368510352,
+    "static_baseline_60d_pct": 4.692573104963843,
+    "expected_net_return_60d_pct": -3.3755303751196633,
     "forecast_rank": 0.17085771836659952,
     "stable_forecast_rank": 0.17085771836659952,
     "rank_pass_count": 0,
     "rank_stability_lookback_days": 5,
-    "diagnostic_probability": 0.1709840319464391,
+    "diagnostic_probability": 0.1709839416357326,
     "alpha_demand_margin_pct": 0.0,
     "risk_cap_margin_pct": 5.0,
     "alpha_reasons": [
@@ -339,9 +337,9 @@
     "raw_target_margin_pct": 0.0,
     "confirmed_target_margin_pct": 0.0,
     "model_actual_margin_pct": 0.0,
-    "action": "HOLD",
+    "action": "NO_NEW_SIGNAL",
     "reasons": [
-      "Inside_No_Trade_Band"
+      "Signal_Date_Already_Processed"
     ],
     "reference_equity": 38827242.0,
     "recommended_loan_amount": 0.0,
