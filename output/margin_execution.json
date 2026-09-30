@@ -1,7 +1,7 @@
 {
-  "signal_date": "2026-09-28",
-  "effective_date": "2026-09-29",
-  "raw_target_margin_pct": 3.3,
+  "signal_date": "2026-09-29",
+  "effective_date": "2026-09-30",
+  "raw_target_margin_pct": 3.2,
   "confirmed_target_margin_pct": 3.0,
   "model_actual_margin_pct": 3.0,
   "action": "HOLD",
