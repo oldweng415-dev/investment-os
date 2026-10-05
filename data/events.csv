@@ -1,6 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-09-24,MARKET,macro_release,Employee Tenure,BLS_ICS,False
-2026-09-24,MARKET,macro_release,Job Flexibilities and Work Schedules,BLS_ICS,False
 2026-09-25,MARKET,macro_release,Employee Benefits in the United States,BLS_ICS,False
 2026-09-29,MARKET,macro_release,Job Openings and Labor Turnover Survey,BLS_ICS,False
 2026-09-30,MARKET,macro_release,Metropolitan Area Employment and Unemployment (Monthly),BLS_ICS,False
