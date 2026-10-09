@@ -51,9 +51,29 @@ event_date,asset,event_type,description,source,is_proxy
 2026-12-23,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
 2026-12-30,MARKET,macro_release,Metropolitan Area Employment and Unemployment (Monthly),BLS_ICS,False
 2027-01-27,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
+2027-01-28,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
+2027-01-28,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
+2027-02-25,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
+2027-02-25,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
 2027-03-17,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
+2027-03-31,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
+2027-03-31,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
 2027-04-28,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
+2027-04-29,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
+2027-04-29,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
+2027-05-27,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
+2027-05-27,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
 2027-06-09,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
+2027-06-25,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
+2027-06-25,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
 2027-07-28,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
+2027-07-29,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
+2027-07-29,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
+2027-08-25,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
+2027-08-25,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
 2027-09-15,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
+2027-09-30,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
+2027-09-30,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
 2027-10-27,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
+2027-10-28,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
+2027-10-28,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
