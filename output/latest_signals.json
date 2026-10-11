@@ -1,13 +1,13 @@
 {
   "signal_date": "2026-10-09",
   "decision_date": "2026-10-12",
-  "generated_at": "2026-10-10T01:52:26.735672+00:00",
+  "generated_at": "2026-10-11T01:08:02.111109+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
-    "Buy_Score": 67.07,
-    "Risk_Score": 32.89,
-    "Margin_Score": 55.66,
+    "Buy_Score": 66.86,
+    "Risk_Score": 32.99,
+    "Margin_Score": 55.53,
     "Carry_Score": 20.76
   },
   "modules": {
@@ -16,10 +16,10 @@
     "Valuation": 53.1,
     "Macro": 79.32,
     "Liquidity": 46.92,
-    "Positioning": 58.95
+    "Positioning": 57.94
   },
   "allocation": {
-    "Target_Margin_Pct": 3.6,
+    "Target_Margin_Pct": 3.5,
     "Target_Cash_Min_Pct": 15,
     "Target_Cash_Max_Pct": 25
   },
@@ -30,12 +30,12 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 18.2671,
+    "iv30_pct": 18.602,
     "rv20_pct": 15.3298,
-    "iv_minus_rv_pct_points": 2.9373,
+    "iv_minus_rv_pct_points": 3.2723,
     "strike_recommendation_available": false
   },
-  "action": "僅限核心 ETF 小量分批；目標融資 3.6%，現金 15%–25%。",
+  "action": "僅限核心 ETF 小量分批；目標融資 3.5%，現金 15%–25%。",
   "effective_module_weights": {
     "buy": {
       "market_regime": 0.25,
@@ -144,7 +144,7 @@
       "last_updated": "2026-10-09"
     },
     "positioning": {
-      "score": 58.95,
+      "score": 57.94,
       "available": true,
       "coverage": 1.0,
       "is_proxy": true,
@@ -274,11 +274,11 @@
     "positioning.skew_percentile": 84.8611,
     "positioning.vvix": 84.88,
     "positioning.vvix_percentile": 16.1706,
-    "positioning.equity_put_call": 0.62,
+    "positioning.equity_put_call": 0.56,
     "positioning.cftc_positioning": -23.2697,
-    "positioning.iv30": 18.2671,
+    "positioning.iv30": 18.602,
     "positioning.rv20": 15.3298,
-    "positioning.iv_rv_spread": 2.9373
+    "positioning.iv_rv_spread": 3.2723
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
@@ -289,16 +289,14 @@
   "margin_execution": {
     "signal_date": "2026-10-09",
     "effective_date": "2026-10-12",
-    "raw_target_margin_pct": 3.6,
+    "raw_target_margin_pct": 3.5,
     "confirmed_target_margin_pct": 3.0,
     "model_actual_margin_pct": 3.0,
-    "action": "HOLD",
+    "action": "NO_NEW_SIGNAL",
     "reasons": [
-      "Inside_No_Trade_Band"
+      "Signal_Date_Already_Processed"
     ],
     "hard_exit": false,
-    "increase_streak": 0,
-    "decrease_streak": 0,
     "reference_equity": 38827242.0,
     "recommended_loan_amount": 1164817.26,
     "note": "model_actual_margin_pct is a persistent model target, not broker-confirmed debt."
@@ -311,15 +309,15 @@
     "decision_interval_business_days": 10,
     "last_model_decision_date": "2026-10-06",
     "expert": "trend",
-    "expected_relative_alpha_60d_pct": 3.445065370047079,
-    "stable_expected_relative_alpha_60d_pct": 4.125381327272977,
-    "static_baseline_60d_pct": 4.884099281066115,
-    "expected_net_return_60d_pct": 8.329164651113194,
-    "forecast_rank": 0.717803125,
+    "expected_relative_alpha_60d_pct": 3.54483730054558,
+    "stable_expected_relative_alpha_60d_pct": 4.145342523185246,
+    "static_baseline_60d_pct": 4.884099209428106,
+    "expected_net_return_60d_pct": 8.428936509973687,
+    "forecast_rank": 0.7295968749999999,
     "stable_forecast_rank": 0.7105625,
     "rank_pass_count": 0,
     "rank_stability_lookback_days": 5,
-    "diagnostic_probability": 0.7755385996620436,
+    "diagnostic_probability": 0.7852676241725395,
     "alpha_demand_margin_pct": 0.0,
     "risk_cap_margin_pct": 6.0,
     "alpha_reasons": [
@@ -329,9 +327,9 @@
     "raw_target_margin_pct": 0.0,
     "confirmed_target_margin_pct": 0.0,
     "model_actual_margin_pct": 0.0,
-    "action": "HOLD",
+    "action": "NO_NEW_SIGNAL",
     "reasons": [
-      "Inside_No_Trade_Band"
+      "Signal_Date_Already_Processed"
     ],
     "reference_equity": 38827242.0,
     "recommended_loan_amount": 0.0,
