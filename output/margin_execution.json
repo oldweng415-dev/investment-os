@@ -1,14 +1,16 @@
 {
-  "signal_date": "2026-10-15",
-  "effective_date": "2026-10-16",
-  "raw_target_margin_pct": 2.1,
+  "signal_date": "2026-10-16",
+  "effective_date": "2026-10-19",
+  "raw_target_margin_pct": 1.4,
   "confirmed_target_margin_pct": 3.0,
   "model_actual_margin_pct": 3.0,
-  "action": "NO_NEW_SIGNAL",
+  "action": "WAIT_DECREASE_CONFIRMATION",
   "reasons": [
-    "Signal_Date_Already_Processed"
+    "Decrease_Confirmation_1_of_2"
   ],
   "hard_exit": false,
+  "increase_streak": 0,
+  "decrease_streak": 1,
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 1164817.26,
   "note": "model_actual_margin_pct is a persistent model target, not broker-confirmed debt."
