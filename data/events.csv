@@ -72,3 +72,5 @@ event_date,asset,event_type,description,source,is_proxy
 2027-10-27,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
 2027-10-28,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
 2027-10-28,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
+2027-11-24,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
+2027-11-24,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
