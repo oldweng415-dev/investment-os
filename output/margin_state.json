@@ -1,14 +1,15 @@
 {
-  "model_actual_margin_pct": 3.0,
-  "confirmed_target_margin_pct": 3.0,
+  "model_actual_margin_pct": 1.2,
+  "confirmed_target_margin_pct": 1.2,
   "increase_streak": 0,
-  "decrease_streak": 1,
-  "last_trade_date": "2026-09-23",
+  "decrease_streak": 0,
+  "last_trade_date": "2026-10-19",
   "last_increase_date": "2026-09-23",
   "last_increase_iso_week": "2026-W39",
-  "last_processed_signal_date": "2026-10-16",
-  "last_action": "WAIT_DECREASE_CONFIRMATION",
+  "last_processed_signal_date": "2026-10-19",
+  "last_action": "DECREASE_MARGIN",
   "last_reason": [
-    "Decrease_Confirmation_1_of_2"
+    "Decrease_Confirmation_2_of_2",
+    "Decrease_Executed"
   ]
 }
