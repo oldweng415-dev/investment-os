@@ -1,2 +1,14 @@
-2026-10-21 00:45:16,746 | INFO | Starting Investment OS production engine; mode=live_public
-2026-10-21 00:45:28,440 | INFO | Completed: Buy=61.36 Risk=43.81 Margin=48.73 Target=1.2% CC=STOP_NEW_CC
+2026-10-22 00:48:29,998 | INFO | Starting Investment OS production engine; mode=live_public
+2026-10-22 00:48:32,599 | WARNING | FRED BAMLH0A0HYM2 failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:32,695 | WARNING | FRED DFII10 failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:32,869 | WARNING | FRED T10Y3M failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:32,958 | WARNING | FRED T10Y2Y failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:33,070 | WARNING | FRED WALCL failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:33,161 | WARNING | FRED RRPONTSYD failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:33,268 | WARNING | FRED WTREGEN failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:33,394 | WARNING | FRED WRESBAL failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:33,486 | WARNING | FRED M2REAL failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:33,579 | WARNING | FRED ICSA failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:33,668 | WARNING | FRED UNRATE failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:33,778 | WARNING | FRED PCEPILFE failed: Expecting value: line 1 column 1 (char 0)
+2026-10-22 00:48:38,842 | INFO | Completed: Buy=60.9 Risk=44.42 Margin=48.22 Target=1.1% CC=STOP_NEW_CC
