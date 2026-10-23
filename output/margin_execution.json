@@ -1,6 +1,6 @@
 {
-  "signal_date": "2026-10-20",
-  "effective_date": "2026-10-21",
+  "signal_date": "2026-10-21",
+  "effective_date": "2026-10-22",
   "raw_target_margin_pct": 1.1,
   "confirmed_target_margin_pct": 1.2,
   "model_actual_margin_pct": 1.2,
