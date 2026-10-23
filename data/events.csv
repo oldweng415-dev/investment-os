@@ -5,13 +5,9 @@ event_date,asset,event_type,description,source,is_proxy
 2026-10-16,MARKET,macro_release,U.S. Import and Export Price Indexes,BLS_ICS,False
 2026-10-20,MARKET,macro_release,State Employment and Unemployment (Monthly),BLS_ICS,False
 2026-10-21,MARKET,macro_release,Usual Weekly Earnings of Wage and Salary Workers,BLS_ICS,False
-2026-10-21,META,earnings,META estimated earnings date,YFINANCE_EARNINGS_PROXY,True
-2026-10-28,GOOGL,earnings,GOOGL estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-10-28,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
 2026-10-28,MARKET,macro_release,Quarterly Data Series on Business Employment Dynamics,BLS_ICS,False
 2026-10-28,MARKET,macro_release,Metropolitan Area Employment and Unemployment (Monthly),BLS_ICS,False
-2026-10-28,MSFT,earnings,MSFT estimated earnings date,YFINANCE_EARNINGS_PROXY,True
-2026-10-29,AMZN,earnings,AMZN estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-10-29,MARKET,macro_release,Consumer Expenditures,BLS_ICS,False
 2026-10-29,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
 2026-10-29,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
@@ -23,7 +19,6 @@ event_date,asset,event_type,description,source,is_proxy
 2026-11-10,MARKET,macro_release,Consumer Price Index,BLS_ICS,False
 2026-11-13,MARKET,macro_release,Producer Price Index,BLS_ICS,False
 2026-11-17,MARKET,macro_release,U.S. Import and Export Price Indexes,BLS_ICS,False
-2026-11-17,NVDA,earnings,NVDA estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-11-18,MARKET,macro_release,Employer-Reported Workplace Injuries and Illnesses (Annual),BLS_ICS,False
 2026-11-20,MARKET,macro_release,State Employment and Unemployment (Monthly),BLS_ICS,False
 2026-11-25,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
