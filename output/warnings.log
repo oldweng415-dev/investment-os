@@ -1,3 +1,2 @@
-2026-10-23 00:48:47,809 | INFO | Starting Investment OS production engine; mode=live_public
-2026-10-23 00:48:54,984 | WARNING | Event calendar is only partially available; missing checks: ['required_asset_scopes', 'five_company_earnings']
-2026-10-23 00:48:55,336 | INFO | Completed: Buy=60.87 Risk=44.37 Margin=48.26 Target=1.1% CC=STOP_NEW_CC
+2026-10-24 00:55:35,528 | INFO | Starting Investment OS production engine; mode=live_public
+2026-10-24 00:55:46,022 | INFO | Completed: Buy=60.36 Risk=45.45 Margin=48.16 Target=1.1% CC=STOP_NEW_CC
