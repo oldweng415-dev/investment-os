@@ -1,12 +1,12 @@
 {
-  "signal_date": "2026-10-29",
-  "effective_date": "2026-10-30",
-  "raw_target_margin_pct": 1.3,
+  "signal_date": "2026-10-30",
+  "effective_date": "2026-11-02",
+  "raw_target_margin_pct": 0.9,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
   "action": "HOLD",
   "reasons": [
-    "No_Trigger"
+    "Inside_No_Trade_Band"
   ],
   "hard_exit": false,
   "increase_streak": 0,
