@@ -1,6 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-10-21,MARKET,macro_release,Usual Weekly Earnings of Wage and Salary Workers,BLS_ICS,False
-2026-10-21,META,earnings,META estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-10-28,GOOGL,earnings,GOOGL estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-10-28,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
 2026-10-28,MARKET,macro_release,Quarterly Data Series on Business Employment Dynamics,BLS_ICS,False
@@ -40,6 +38,7 @@ event_date,asset,event_type,description,source,is_proxy
 2026-12-23,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
 2026-12-30,MARKET,macro_release,Metropolitan Area Employment and Unemployment (Monthly),BLS_ICS,False
 2027-01-27,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
+2027-01-27,META,earnings,META estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2027-01-27,MSFT,earnings,MSFT estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2027-01-28,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
 2027-01-28,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
