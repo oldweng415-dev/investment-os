@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-10-30",
   "decision_date": "2026-11-02",
-  "generated_at": "2026-11-01T01:21:36.326504+00:00",
+  "generated_at": "2026-11-02T01:43:01.541707+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -30,9 +30,9 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 25.135,
+    "iv30_pct": 25.5653,
     "rv20_pct": 22.8502,
-    "iv_minus_rv_pct_points": 2.2848,
+    "iv_minus_rv_pct_points": 2.7151,
     "strike_recommendation_available": false
   },
   "action": "僅限核心 ETF 小量分批；目標融資 1.0%，現金 15%–25%。",
@@ -284,9 +284,9 @@
     "positioning.vvix_percentile": 62.4405,
     "positioning.equity_put_call": 0.66,
     "positioning.cftc_positioning": -20.5239,
-    "positioning.iv30": 25.135,
+    "positioning.iv30": 25.5653,
     "positioning.rv20": 22.8502,
-    "positioning.iv_rv_spread": 2.2848
+    "positioning.iv_rv_spread": 2.7151
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
@@ -317,15 +317,15 @@
     "decision_interval_business_days": 10,
     "last_model_decision_date": "2026-10-20",
     "expert": "pullback",
-    "expected_relative_alpha_60d_pct": 10.602693007358942,
-    "stable_expected_relative_alpha_60d_pct": 8.969271112625773,
-    "static_baseline_60d_pct": 5.073499990221654,
-    "expected_net_return_60d_pct": 15.676192997580596,
+    "expected_relative_alpha_60d_pct": 10.602688828996591,
+    "stable_expected_relative_alpha_60d_pct": 8.969267184641536,
+    "static_baseline_60d_pct": 5.0734999914886485,
+    "expected_net_return_60d_pct": 15.67618882048524,
     "forecast_rank": 0.8676132578281146,
     "stable_forecast_rank": 0.8205007772596048,
     "rank_pass_count": 5,
     "rank_stability_lookback_days": 5,
-    "diagnostic_probability": 0.9080883013727359,
+    "diagnostic_probability": 0.9080883676241958,
     "alpha_demand_margin_pct": 0.0,
     "risk_cap_margin_pct": 1.0,
     "alpha_reasons": [
