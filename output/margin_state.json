@@ -6,9 +6,9 @@
   "last_trade_date": "2026-10-23",
   "last_increase_date": "2026-09-23",
   "last_increase_iso_week": "2026-W39",
-  "last_processed_signal_date": "2026-11-04",
-  "last_action": "HOLD",
+  "last_processed_signal_date": "2026-11-05",
+  "last_action": "HOLD_ZERO",
   "last_reason": [
-    "Inside_No_Trade_Band"
+    "Margin_Score_Hard_Exit"
   ]
 }

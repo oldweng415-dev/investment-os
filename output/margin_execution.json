@@ -1,14 +1,14 @@
 {
-  "signal_date": "2026-11-04",
-  "effective_date": "2026-11-05",
-  "raw_target_margin_pct": 0.7,
+  "signal_date": "2026-11-05",
+  "effective_date": "2026-11-06",
+  "raw_target_margin_pct": 0.0,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
-  "action": "HOLD",
+  "action": "HOLD_ZERO",
   "reasons": [
-    "Inside_No_Trade_Band"
+    "Margin_Score_Hard_Exit"
   ],
-  "hard_exit": false,
+  "hard_exit": true,
   "increase_streak": 0,
   "decrease_streak": 0,
   "reference_equity": 38827242.0,
