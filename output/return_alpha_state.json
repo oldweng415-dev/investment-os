@@ -1,12 +1,12 @@
 {
   "model_actual_margin_pct": 0.0,
   "confirmed_target_margin_pct": 0.0,
-  "increase_streak": 0,
+  "increase_streak": 1,
   "decrease_streak": 0,
   "last_trade_date": "2026-11-05",
   "last_increase_date": "2026-11-03",
   "last_increase_iso_week": "2026-W45",
-  "last_processed_signal_date": "2026-11-05",
+  "last_processed_signal_date": "2026-11-06",
   "entry_date": null,
   "entry_price": null,
   "peak_price": null,
@@ -14,9 +14,8 @@
   "scheduled_alpha_demand_margin_pct": 4.0,
   "scheduled_forecast_rank": 0.8676132578281146,
   "scheduled_expected_relative_alpha_pct": 10.257306450528123,
-  "last_action": "EXIT_ALL",
+  "last_action": "WAIT_INCREASE_CONFIRMATION",
   "last_reason": [
-    "Margin_Score_Hard_Exit",
-    "Risk_Off_Expert_Exit"
+    "Increase_Confirmation_1_of_1"
   ]
 }
