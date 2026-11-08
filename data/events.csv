@@ -1,8 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-10-28,GOOGL,earnings,GOOGL estimated earnings date,YFINANCE_EARNINGS_PROXY,True
-2026-10-28,MARKET,fomc,FOMC policy decision,FED_FOMC_CALENDAR,False
-2026-10-28,MARKET,macro_release,Quarterly Data Series on Business Employment Dynamics,BLS_ICS,False
-2026-10-28,MARKET,macro_release,Metropolitan Area Employment and Unemployment (Monthly),BLS_ICS,False
 2026-10-29,AMZN,earnings,AMZN estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-10-29,MARKET,macro_release,Consumer Expenditures,BLS_ICS,False
 2026-10-29,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
