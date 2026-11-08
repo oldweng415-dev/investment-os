@@ -7,9 +7,9 @@
   "last_model_decision_date": "2026-11-03",
   "expert": "risk_off",
   "expected_relative_alpha_60d_pct": 0.0,
-  "stable_expected_relative_alpha_60d_pct": 6.5791479692004415,
-  "static_baseline_60d_pct": 5.088280168101253,
-  "expected_net_return_60d_pct": 5.088280168101253,
+  "stable_expected_relative_alpha_60d_pct": 6.579142915830745,
+  "static_baseline_60d_pct": 5.088279978299924,
+  "expected_net_return_60d_pct": 5.088279978299924,
   "forecast_rank": 0.0,
   "stable_forecast_rank": 0.8457142857142859,
   "rank_pass_count": 3,
@@ -28,9 +28,9 @@
   "raw_target_margin_pct": 1.0,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
-  "action": "WAIT_INCREASE_CONFIRMATION",
+  "action": "NO_NEW_SIGNAL",
   "reasons": [
-    "Increase_Confirmation_1_of_1"
+    "Signal_Date_Already_Processed"
   ],
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 0.0,
