@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-11-06",
   "decision_date": "2026-11-09",
-  "generated_at": "2026-11-08T01:41:19.375096+00:00",
+  "generated_at": "2026-11-09T01:49:56.906893+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -30,9 +30,9 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 31.0165,
+    "iv30_pct": 30.8318,
     "rv20_pct": 32.6938,
-    "iv_minus_rv_pct_points": -1.6774,
+    "iv_minus_rv_pct_points": -1.862,
     "strike_recommendation_available": false
   },
   "action": "僅限核心 ETF 小量分批；目標融資 0.2%，現金 15%–25%。",
@@ -202,7 +202,6 @@
         "YFINANCE_EARNINGS_PROXY"
       ],
       "asset_scopes": [
-        "AMZN",
         "MARKET",
         "META",
         "MSFT",
@@ -286,9 +285,9 @@
     "positioning.vvix_percentile": 84.3849,
     "positioning.equity_put_call": 0.59,
     "positioning.cftc_positioning": -7.2553,
-    "positioning.iv30": 31.0165,
+    "positioning.iv30": 30.8318,
     "positioning.rv20": 32.6938,
-    "positioning.iv_rv_spread": -1.6774
+    "positioning.iv_rv_spread": -1.862
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
@@ -320,9 +319,9 @@
     "last_model_decision_date": "2026-11-03",
     "expert": "risk_off",
     "expected_relative_alpha_60d_pct": 0.0,
-    "stable_expected_relative_alpha_60d_pct": 6.579142915830745,
-    "static_baseline_60d_pct": 5.088279978299924,
-    "expected_net_return_60d_pct": 5.088279978299924,
+    "stable_expected_relative_alpha_60d_pct": 6.579135452103902,
+    "static_baseline_60d_pct": 5.088280072614558,
+    "expected_net_return_60d_pct": 5.088280072614558,
     "forecast_rank": 0.0,
     "stable_forecast_rank": 0.8457142857142859,
     "rank_pass_count": 3,
