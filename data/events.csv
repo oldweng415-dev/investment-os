@@ -1,8 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-10-29,AMZN,earnings,AMZN estimated earnings date,YFINANCE_EARNINGS_PROXY,True
-2026-10-29,MARKET,macro_release,Consumer Expenditures,BLS_ICS,False
-2026-10-29,MARKET,macro_release,Gross Domestic Product,BEA_RELEASE_SCHEDULE,False
-2026-10-29,MARKET,macro_release,Personal Income and Outlays,BEA_RELEASE_SCHEDULE,False
 2026-10-30,MARKET,macro_release,Employment Cost Index,BLS_ICS,False
 2026-11-03,MARKET,macro_release,Job Openings and Labor Turnover Survey,BLS_ICS,False
 2026-11-05,MARKET,macro_release,Productivity and Costs,BLS_ICS,False
