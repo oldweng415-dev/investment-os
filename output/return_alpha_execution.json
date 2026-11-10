@@ -1,18 +1,18 @@
 {
   "model_version": "v3_rank_relative_alpha_nonoverlap",
-  "signal_date": "2026-11-06",
-  "effective_date": "2026-11-09",
+  "signal_date": "2026-11-09",
+  "effective_date": "2026-11-10",
   "decision_due": false,
   "decision_interval_business_days": 10,
   "last_model_decision_date": "2026-11-03",
   "expert": "risk_off",
   "expected_relative_alpha_60d_pct": 0.0,
-  "stable_expected_relative_alpha_60d_pct": 6.579135452103902,
-  "static_baseline_60d_pct": 5.088280072614558,
-  "expected_net_return_60d_pct": 5.088280072614558,
+  "stable_expected_relative_alpha_60d_pct": 4.1722946577172255,
+  "static_baseline_60d_pct": 5.078841810476716,
+  "expected_net_return_60d_pct": 5.078841810476716,
   "forecast_rank": 0.0,
-  "stable_forecast_rank": 0.8457142857142859,
-  "rank_pass_count": 3,
+  "stable_forecast_rank": 0.0,
+  "rank_pass_count": 2,
   "rank_stability_lookback_days": 5,
   "diagnostic_probability": 0.01,
   "alpha_demand_margin_pct": 4.0,
@@ -22,15 +22,14 @@
   ],
   "risk_reasons": [
     "Liquidity_Below_45_Penalty",
-    "Weak_Regime_Cap",
-    "VIX_Backwardation_Cap"
+    "Weak_Regime_Cap"
   ],
   "raw_target_margin_pct": 1.0,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
-  "action": "NO_NEW_SIGNAL",
+  "action": "WAIT_INCREASE_CONFIRMATION",
   "reasons": [
-    "Signal_Date_Already_Processed"
+    "Increase_Confirmation_2_of_1"
   ],
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 0.0,
