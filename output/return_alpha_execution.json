@@ -1,20 +1,20 @@
 {
   "model_version": "v3_rank_relative_alpha_nonoverlap",
-  "signal_date": "2026-11-10",
-  "effective_date": "2026-11-11",
+  "signal_date": "2026-11-11",
+  "effective_date": "2026-11-12",
   "decision_due": false,
   "decision_interval_business_days": 10,
   "last_model_decision_date": "2026-11-03",
-  "expert": "risk_off",
-  "expected_relative_alpha_60d_pct": 0.0,
-  "stable_expected_relative_alpha_60d_pct": 1.971251628342495,
-  "static_baseline_60d_pct": 5.070012418283602,
-  "expected_net_return_60d_pct": 5.070012418283602,
-  "forecast_rank": 0.0,
+  "expert": "pullback",
+  "expected_relative_alpha_60d_pct": 7.908349149033297,
+  "stable_expected_relative_alpha_60d_pct": 1.5816698298066596,
+  "static_baseline_60d_pct": 5.062447358635555,
+  "expected_net_return_60d_pct": 12.970796507668853,
+  "forecast_rank": 0.7610714285714286,
   "stable_forecast_rank": 0.0,
   "rank_pass_count": 1,
   "rank_stability_lookback_days": 5,
-  "diagnostic_probability": 0.01,
+  "diagnostic_probability": 0.8592451573084143,
   "alpha_demand_margin_pct": 4.0,
   "risk_cap_margin_pct": 1.0,
   "alpha_reasons": [
@@ -29,7 +29,7 @@
   "model_actual_margin_pct": 0.0,
   "action": "WAIT_INCREASE_CONFIRMATION",
   "reasons": [
-    "Increase_Confirmation_3_of_1"
+    "Increase_Confirmation_4_of_1"
   ],
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 0.0,
