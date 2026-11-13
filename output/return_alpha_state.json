@@ -1,12 +1,12 @@
 {
   "model_actual_margin_pct": 0.0,
   "confirmed_target_margin_pct": 0.0,
-  "increase_streak": 4,
+  "increase_streak": 5,
   "decrease_streak": 0,
   "last_trade_date": "2026-11-05",
   "last_increase_date": "2026-11-03",
   "last_increase_iso_week": "2026-W45",
-  "last_processed_signal_date": "2026-11-11",
+  "last_processed_signal_date": "2026-11-12",
   "entry_date": null,
   "entry_price": null,
   "peak_price": null,
@@ -16,6 +16,6 @@
   "scheduled_expected_relative_alpha_pct": 10.257306450528123,
   "last_action": "WAIT_INCREASE_CONFIRMATION",
   "last_reason": [
-    "Increase_Confirmation_4_of_1"
+    "Increase_Confirmation_5_of_1"
   ]
 }
