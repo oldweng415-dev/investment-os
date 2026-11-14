@@ -1,5 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-11-03,MARKET,macro_release,Job Openings and Labor Turnover Survey,BLS_ICS,False
 2026-11-05,MARKET,macro_release,Productivity and Costs,BLS_ICS,False
 2026-11-06,MARKET,macro_release,Employment Situation,BLS_ICS,False
 2026-11-10,MARKET,macro_release,Real Earnings,BLS_ICS,False
