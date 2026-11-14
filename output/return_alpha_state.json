@@ -1,21 +1,21 @@
 {
-  "model_actual_margin_pct": 0.0,
-  "confirmed_target_margin_pct": 0.0,
-  "increase_streak": 5,
+  "model_actual_margin_pct": 2.0,
+  "confirmed_target_margin_pct": 2.0,
+  "increase_streak": 0,
   "decrease_streak": 0,
-  "last_trade_date": "2026-11-05",
-  "last_increase_date": "2026-11-03",
-  "last_increase_iso_week": "2026-W45",
-  "last_processed_signal_date": "2026-11-12",
-  "entry_date": null,
-  "entry_price": null,
-  "peak_price": null,
+  "last_trade_date": "2026-11-13",
+  "last_increase_date": "2026-11-13",
+  "last_increase_iso_week": "2026-W46",
+  "last_processed_signal_date": "2026-11-13",
+  "entry_date": "2026-11-13",
+  "entry_price": 679.8900146484375,
+  "peak_price": 679.8900146484375,
   "last_model_decision_date": "2026-11-03",
   "scheduled_alpha_demand_margin_pct": 4.0,
   "scheduled_forecast_rank": 0.8676132578281146,
   "scheduled_expected_relative_alpha_pct": 10.257306450528123,
-  "last_action": "WAIT_INCREASE_CONFIRMATION",
+  "last_action": "INCREASE_MARGIN",
   "last_reason": [
-    "Increase_Confirmation_5_of_1"
+    "Increase_Executed"
   ]
 }

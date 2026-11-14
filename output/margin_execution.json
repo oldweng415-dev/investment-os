@@ -1,15 +1,15 @@
 {
-  "signal_date": "2026-11-12",
-  "effective_date": "2026-11-13",
-  "raw_target_margin_pct": 0.8,
+  "signal_date": "2026-11-13",
+  "effective_date": "2026-11-16",
+  "raw_target_margin_pct": 1.6,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
-  "action": "HOLD",
+  "action": "WAIT_INCREASE_CONFIRMATION",
   "reasons": [
-    "Inside_No_Trade_Band"
+    "Increase_Confirmation_1_of_3"
   ],
   "hard_exit": false,
-  "increase_streak": 0,
+  "increase_streak": 1,
   "decrease_streak": 0,
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 0.0,
