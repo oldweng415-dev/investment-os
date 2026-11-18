@@ -1,35 +1,35 @@
 {
   "model_version": "v3_rank_relative_alpha_nonoverlap",
-  "signal_date": "2026-11-16",
-  "effective_date": "2026-11-17",
-  "decision_due": false,
+  "signal_date": "2026-11-17",
+  "effective_date": "2026-11-18",
+  "decision_due": true,
   "decision_interval_business_days": 10,
-  "last_model_decision_date": "2026-11-03",
+  "last_model_decision_date": "2026-11-17",
   "expert": "risk_off",
   "expected_relative_alpha_60d_pct": 0.0,
-  "stable_expected_relative_alpha_60d_pct": 3.4791920716626694,
-  "static_baseline_60d_pct": 5.050406406795517,
-  "expected_net_return_60d_pct": 5.050406406795517,
+  "stable_expected_relative_alpha_60d_pct": 3.4789784233174212,
+  "static_baseline_60d_pct": 5.045518248376942,
+  "expected_net_return_60d_pct": 5.045518248376942,
   "forecast_rank": 0.0,
   "stable_forecast_rank": 0.0,
   "rank_pass_count": 2,
   "rank_stability_lookback_days": 5,
   "diagnostic_probability": 0.01,
-  "alpha_demand_margin_pct": 4.0,
+  "alpha_demand_margin_pct": 0.0,
   "risk_cap_margin_pct": 2.0,
   "alpha_reasons": [
-    "Carry_Previous_Scheduled_Demand"
+    "Risk_Off_Expert"
   ],
   "risk_reasons": [
-    "Weak_Regime_Cap"
+    "Weak_Regime_Cap",
+    "VIX_Backwardation_Cap"
   ],
-  "raw_target_margin_pct": 2.0,
+  "raw_target_margin_pct": 0.0,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
-  "action": "EXIT_ALL",
+  "action": "HOLD",
   "reasons": [
-    "Rank_Exit",
-    "Risk_Off_Expert_Exit"
+    "Inside_No_Trade_Band"
   ],
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 0.0,

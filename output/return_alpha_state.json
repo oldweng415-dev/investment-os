@@ -6,17 +6,16 @@
   "last_trade_date": "2026-11-16",
   "last_increase_date": "2026-11-13",
   "last_increase_iso_week": "2026-W46",
-  "last_processed_signal_date": "2026-11-16",
+  "last_processed_signal_date": "2026-11-17",
   "entry_date": null,
   "entry_price": null,
   "peak_price": null,
-  "last_model_decision_date": "2026-11-03",
-  "scheduled_alpha_demand_margin_pct": 4.0,
-  "scheduled_forecast_rank": 0.8676132578281146,
-  "scheduled_expected_relative_alpha_pct": 10.257306450528123,
-  "last_action": "EXIT_ALL",
+  "last_model_decision_date": "2026-11-17",
+  "scheduled_alpha_demand_margin_pct": 0.0,
+  "scheduled_forecast_rank": 0.0,
+  "scheduled_expected_relative_alpha_pct": 3.4789784233174212,
+  "last_action": "HOLD",
   "last_reason": [
-    "Rank_Exit",
-    "Risk_Off_Expert_Exit"
+    "Inside_No_Trade_Band"
   ]
 }
