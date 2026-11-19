@@ -1,26 +1,27 @@
 {
   "model_version": "v3_rank_relative_alpha_nonoverlap",
-  "signal_date": "2026-11-17",
-  "effective_date": "2026-11-18",
-  "decision_due": true,
+  "signal_date": "2026-11-18",
+  "effective_date": "2026-11-19",
+  "decision_due": false,
   "decision_interval_business_days": 10,
   "last_model_decision_date": "2026-11-17",
   "expert": "risk_off",
   "expected_relative_alpha_60d_pct": 0.0,
-  "stable_expected_relative_alpha_60d_pct": 3.4789784233174212,
-  "static_baseline_60d_pct": 5.045518248376942,
-  "expected_net_return_60d_pct": 5.045518248376942,
+  "stable_expected_relative_alpha_60d_pct": 1.9135357135395954,
+  "static_baseline_60d_pct": 5.040022433685278,
+  "expected_net_return_60d_pct": 5.040022433685278,
   "forecast_rank": 0.0,
   "stable_forecast_rank": 0.0,
-  "rank_pass_count": 2,
+  "rank_pass_count": 1,
   "rank_stability_lookback_days": 5,
   "diagnostic_probability": 0.01,
   "alpha_demand_margin_pct": 0.0,
-  "risk_cap_margin_pct": 2.0,
+  "risk_cap_margin_pct": 0.0,
   "alpha_reasons": [
-    "Risk_Off_Expert"
+    "Carry_Previous_Scheduled_Demand"
   ],
   "risk_reasons": [
+    "Risk_Above_55_Penalty",
     "Weak_Regime_Cap",
     "VIX_Backwardation_Cap"
   ],
