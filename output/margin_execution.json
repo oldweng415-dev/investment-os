@@ -1,7 +1,7 @@
 {
-  "signal_date": "2026-11-18",
-  "effective_date": "2026-11-19",
-  "raw_target_margin_pct": 1.1,
+  "signal_date": "2026-11-19",
+  "effective_date": "2026-11-20",
+  "raw_target_margin_pct": 0.7,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
   "action": "HOLD_ZERO",
