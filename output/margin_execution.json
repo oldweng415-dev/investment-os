@@ -1,11 +1,13 @@
 {
-  "signal_date": "2026-11-19",
-  "effective_date": "2026-11-20",
-  "raw_target_margin_pct": 0.7,
+  "signal_date": "2026-11-20",
+  "effective_date": "2026-11-23",
+  "raw_target_margin_pct": 0.0,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
   "action": "HOLD_ZERO",
   "reasons": [
+    "Risk_Score_Hard_Exit",
+    "Margin_Score_Hard_Exit",
     "Risk_Override_Hard_Exit"
   ],
   "hard_exit": true,
