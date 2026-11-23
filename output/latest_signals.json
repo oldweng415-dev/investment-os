@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-11-20",
   "decision_date": "2026-11-23",
-  "generated_at": "2026-11-22T02:28:26.521435+00:00",
+  "generated_at": "2026-11-23T02:57:30.316517+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -31,9 +31,9 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 42.359,
+    "iv30_pct": 40.9468,
     "rv20_pct": 40.4764,
-    "iv_minus_rv_pct_points": 1.8825,
+    "iv_minus_rv_pct_points": 0.4703,
     "strike_recommendation_available": false
   },
   "action": "禁止新增融資；建議現金 20%–25%，保留核心持股與風險彈性。",
@@ -290,9 +290,9 @@
     "positioning.vvix_percentile": 93.9484,
     "positioning.equity_put_call": 0.77,
     "positioning.cftc_positioning": -5.6504,
-    "positioning.iv30": 42.359,
+    "positioning.iv30": 40.9468,
     "positioning.rv20": 40.4764,
-    "positioning.iv_rv_spread": 1.8825
+    "positioning.iv_rv_spread": 0.4703
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
@@ -325,8 +325,8 @@
     "expert": "risk_off",
     "expected_relative_alpha_60d_pct": 0.0,
     "stable_expected_relative_alpha_60d_pct": 0.0,
-    "static_baseline_60d_pct": 5.02202069969039,
-    "expected_net_return_60d_pct": 5.02202069969039,
+    "static_baseline_60d_pct": 5.022020532819662,
+    "expected_net_return_60d_pct": 5.022020532819662,
     "forecast_rank": 0.0,
     "stable_forecast_rank": 0.0,
     "rank_pass_count": 0,
