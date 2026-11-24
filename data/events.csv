@@ -1,5 +1,4 @@
 event_date,asset,event_type,description,source,is_proxy
-2026-11-13,MARKET,macro_release,Producer Price Index,BLS_ICS,False
 2026-11-17,MARKET,macro_release,U.S. Import and Export Price Indexes,BLS_ICS,False
 2026-11-17,NVDA,earnings,NVDA estimated earnings date,YFINANCE_EARNINGS_PROXY,True
 2026-11-18,MARKET,macro_release,Employer-Reported Workplace Injuries and Illnesses (Annual),BLS_ICS,False
