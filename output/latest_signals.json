@@ -1,7 +1,7 @@
 {
   "signal_date": "2026-11-25",
   "decision_date": "2026-11-27",
-  "generated_at": "2026-11-26T04:16:03.751875+00:00",
+  "generated_at": "2026-11-27T04:24:14.763851+00:00",
   "data_mode": "live_public",
   "historical_data_is_revised": true,
   "scores": {
@@ -31,9 +31,9 @@
       "Major_event_within_10_trading_days"
     ],
     "options_data_available": true,
-    "iv30_pct": 34.4748,
+    "iv30_pct": 35.0837,
     "rv20_pct": 47.785,
-    "iv_minus_rv_pct_points": -13.3101,
+    "iv_minus_rv_pct_points": -12.7013,
     "strike_recommendation_available": false
   },
   "action": "禁止新增融資；建議現金 20%–25%，保留核心持股與風險彈性。",
@@ -289,9 +289,9 @@
     "positioning.vvix_percentile": 88.3135,
     "positioning.equity_put_call": 0.64,
     "positioning.cftc_positioning": -5.6504,
-    "positioning.iv30": 34.4748,
+    "positioning.iv30": 35.0837,
     "positioning.rv20": 47.785,
-    "positioning.iv_rv_spread": -13.3101
+    "positioning.iv_rv_spread": -12.7013
   },
   "methodology_notes": [
     "live_public FRED history may contain revisions and is not strict PIT.",
@@ -305,15 +305,11 @@
     "raw_target_margin_pct": 0.0,
     "confirmed_target_margin_pct": 0.0,
     "model_actual_margin_pct": 0.0,
-    "action": "HOLD_ZERO",
+    "action": "NO_NEW_SIGNAL",
     "reasons": [
-      "Risk_Score_Hard_Exit",
-      "Margin_Score_Hard_Exit",
-      "Risk_Override_Hard_Exit"
+      "Signal_Date_Already_Processed"
     ],
-    "hard_exit": true,
-    "increase_streak": 0,
-    "decrease_streak": 0,
+    "hard_exit": false,
     "reference_equity": 38827242.0,
     "recommended_loan_amount": 0.0,
     "note": "model_actual_margin_pct is a persistent model target, not broker-confirmed debt."
@@ -328,8 +324,8 @@
     "expert": "risk_off",
     "expected_relative_alpha_60d_pct": 0.0,
     "stable_expected_relative_alpha_60d_pct": 0.0,
-    "static_baseline_60d_pct": 4.98343954708437,
-    "expected_net_return_60d_pct": 4.98343954708437,
+    "static_baseline_60d_pct": 4.983439633129206,
+    "expected_net_return_60d_pct": 4.983439633129206,
     "forecast_rank": 0.0,
     "stable_forecast_rank": 0.0,
     "rank_pass_count": 0,
@@ -346,10 +342,9 @@
     "raw_target_margin_pct": 0.0,
     "confirmed_target_margin_pct": 0.0,
     "model_actual_margin_pct": 0.0,
-    "action": "HOLD_ZERO",
+    "action": "NO_NEW_SIGNAL",
     "reasons": [
-      "Risk_Score_Hard_Exit",
-      "Margin_Score_Hard_Exit"
+      "Signal_Date_Already_Processed"
     ],
     "reference_equity": 38827242.0,
     "recommended_loan_amount": 0.0,
