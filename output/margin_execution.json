@@ -1,14 +1,18 @@
 {
-  "signal_date": "2026-11-25",
-  "effective_date": "2026-11-27",
+  "signal_date": "2026-11-27",
+  "effective_date": "2026-11-30",
   "raw_target_margin_pct": 0.0,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
-  "action": "NO_NEW_SIGNAL",
+  "action": "HOLD_ZERO",
   "reasons": [
-    "Signal_Date_Already_Processed"
+    "Risk_Score_Hard_Exit",
+    "Margin_Score_Hard_Exit",
+    "Risk_Override_Hard_Exit"
   ],
-  "hard_exit": false,
+  "hard_exit": true,
+  "increase_streak": 0,
+  "decrease_streak": 0,
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 0.0,
   "note": "model_actual_margin_pct is a persistent model target, not broker-confirmed debt."

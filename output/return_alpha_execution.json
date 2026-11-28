@@ -1,15 +1,15 @@
 {
   "model_version": "v3_rank_relative_alpha_nonoverlap",
-  "signal_date": "2026-11-25",
-  "effective_date": "2026-11-27",
+  "signal_date": "2026-11-27",
+  "effective_date": "2026-11-30",
   "decision_due": false,
   "decision_interval_business_days": 10,
   "last_model_decision_date": "2026-11-17",
   "expert": "risk_off",
   "expected_relative_alpha_60d_pct": 0.0,
   "stable_expected_relative_alpha_60d_pct": 0.0,
-  "static_baseline_60d_pct": 4.983439633129206,
-  "expected_net_return_60d_pct": 4.983439633129206,
+  "static_baseline_60d_pct": 4.965013498064808,
+  "expected_net_return_60d_pct": 4.965013498064808,
   "forecast_rank": 0.0,
   "stable_forecast_rank": 0.0,
   "rank_pass_count": 0,
@@ -26,9 +26,10 @@
   "raw_target_margin_pct": 0.0,
   "confirmed_target_margin_pct": 0.0,
   "model_actual_margin_pct": 0.0,
-  "action": "NO_NEW_SIGNAL",
+  "action": "HOLD_ZERO",
   "reasons": [
-    "Signal_Date_Already_Processed"
+    "Risk_Score_Hard_Exit",
+    "Margin_Score_Hard_Exit"
   ],
   "reference_equity": 38827242.0,
   "recommended_loan_amount": 0.0,
